@@ -1,24 +1,24 @@
 {
-  "name": "xmcloud-extension-starter",
-  "version": "1.0.0",
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
-  },
-  "dependencies": {
-    "@sitecore-marketplace-sdk/client": "^0.2.0",
-    "@sitecore-marketplace-sdk/xmc": "^0.2.0",
-    "next": "^15.4.6",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1"
-  },
-  "devDependencies": {
-    "@eslint/eslintrc": "^3.3.5",
-    "@types/node": "^24.2.0",
-    "@types/react": "19.1.9",
-    "eslint": "^9.39.4",
-    "eslint-config-next": "^16.2.9",
-    "typescript": "5.9.2"
-  }
+    "name": "xmcloud-extension-starter",
+    "version": "1.0.0",
+    "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start"
+    },
+    "dependencies": {
+        "@sitecore-marketplace-sdk/client": "^0.2.0",
+        "@sitecore-marketplace-sdk/xmc": "^0.2.0",
+        "next": "^15.4.10",
+        "react": "^19.1.1",
+        "react-dom": "^19.1.1"
+    },
+    "devDependencies": {
+        "@eslint/eslintrc": "^3.3.5",
+        "@types/node": "^24.2.0",
+        "@types/react": "19.1.9",
+        "eslint": "^9.39.4",
+        "eslint-config-next": "^16.2.9",
+        "typescript": "5.9.2"
+    }
 }
