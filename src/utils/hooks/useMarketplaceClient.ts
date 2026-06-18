@@ -69,7 +69,7 @@ export function useMarketplaceClient(options: UseMarketplaceClientOptions = {}) 
   // Use ref to track if we're currently initializing to prevent race conditions
   const isInitializingRef = useRef(false);
 
-  const initializeClient = useCallback(async (attempt = 1): Promise<void> => {
+  const initializeClient = useCallback(async function initializeClient(attempt = 1): Promise<void> {
     // Use functional state update to check current state without dependencies
     let shouldProceed = false;
     setState(prev => {
