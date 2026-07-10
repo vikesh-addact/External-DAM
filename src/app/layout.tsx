@@ -1,8 +1,9 @@
 import type { Metadata } from 'next'
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Sitecore Marketplace Extensions',
-  description: 'Sitecore Marketplace extension starter application',
+  title: 'Content Bridge - Sitecore Marketplace',
+  description: 'Content promotion and transfer tool for Sitecore XM Cloud environments',
 }
 
 export default function RootLayout({

@@ -12,6 +12,8 @@
     min-height: 100vh;
     background: linear-gradient(135deg, #fff5f7 0%, #ffffff 100%);
     color: var(--sitecore-charcoal);
+    font-family: var(--sc-font-body);
+    font-size: var(--sc-text-base);
 }
 
 .sidebar {
@@ -40,13 +42,15 @@
 
 .brand strong {
     display: block;
-    font-size: 1rem;
+    font-size: var(--sc-text-lg);
+    font-family: var(--sc-font-heading);
+    font-weight: var(--sc-font-semibold);
 }
 
 .brand span {
     display: block;
     color: #c7c7c7;
-    font-size: 0.85rem;
+    font-size: var(--sc-text-sm);
 }
 
 .nav {
@@ -63,7 +67,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 0.95rem;
+    font-size: var(--sc-text-base);
+    font-family: var(--sc-font-body);
     cursor: pointer;
     transition:
         transform 0.15s ease,
@@ -78,7 +83,7 @@
 .navItemActive {
     background: rgba(225, 29, 72, 0.2);
     color: white;
-    font-weight: 600;
+    font-weight: var(--sc-font-semibold);
 }
 
 .navItem:hover,
@@ -102,7 +107,7 @@
 }
 
 .oauthPanel span {
-    font-size: 0.85rem;
+    font-size: var(--sc-text-sm);
     color: #d0d0d0;
 }
 
@@ -123,8 +128,8 @@
 .eyebrow {
     display: inline-block;
     color: var(--sitecore-red);
-    font-size: 0.8rem;
-    font-weight: 700;
+    font-size: var(--sc-text-xs);
+    font-weight: var(--sc-font-semibold);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     margin-bottom: 6px;
@@ -132,7 +137,9 @@
 
 .header h1 {
     margin: 0;
-    font-size: 1.9rem;
+    font-size: var(--sc-text-3xl);
+    font-family: var(--sc-font-heading);
+    font-weight: var(--sc-font-semibold);
 }
 
 .primaryButton,
@@ -144,7 +151,9 @@
     border: 0;
     border-radius: 999px;
     padding: 10px 14px;
-    font-weight: 600;
+    font-weight: var(--sc-font-semibold);
+    font-size: var(--sc-text-base);
+    font-family: var(--sc-font-body);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -241,13 +250,15 @@
 
 .panelHeader h2 {
     margin: 0 0 4px;
-    font-size: 1.02rem;
+    font-size: var(--sc-text-lg);
+    font-family: var(--sc-font-heading);
+    font-weight: var(--sc-font-semibold);
 }
 
 .panelHeader p {
     margin: 0;
     color: var(--sitecore-muted);
-    font-size: 0.92rem;
+    font-size: var(--sc-text-sm);
 }
 
 .metricGrid {
@@ -270,11 +281,13 @@
 
 .metric span {
     color: var(--sitecore-muted);
-    font-size: 0.9rem;
+    font-size: var(--sc-text-sm);
 }
 
 .metric strong {
-    font-size: 1.45rem;
+    font-size: var(--sc-text-2xl);
+    font-family: var(--sc-font-heading);
+    font-weight: var(--sc-font-semibold);
 }
 
 .pipeline {
@@ -300,8 +313,8 @@
     border-radius: 50%;
     background: var(--sitecore-red);
     color: white;
-    font-size: 0.9rem;
-    font-weight: 700;
+    font-size: var(--sc-text-sm);
+    font-weight: var(--sc-font-semibold);
 }
 
 .formGrid {
@@ -314,7 +327,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-size: 0.92rem;
+    font-size: var(--sc-text-sm);
     color: var(--sitecore-slate);
 }
 
@@ -324,6 +337,7 @@
     border-radius: 12px;
     padding: 10px 12px;
     font: inherit;
+    font-size: var(--sc-text-base);
     background: #fcfcfc;
 }
 
@@ -391,7 +405,7 @@
 .itemRow span {
     margin: 0;
     color: var(--sitecore-muted);
-    font-size: 0.9rem;
+    font-size: var(--sc-text-sm);
 }
 
 .info,
@@ -402,8 +416,8 @@
     padding: 4px 8px;
     border-radius: 999px;
     text-align: center;
-    font-size: 0.75rem;
-    font-weight: 700;
+    font-size: var(--sc-text-xs);
+    font-weight: var(--sc-font-semibold);
     text-transform: uppercase;
 }
 
@@ -482,7 +496,7 @@
     align-items: center;
     gap: 6px;
     color: var(--sitecore-muted);
-    font-size: 0.9rem;
+    font-size: var(--sc-text-sm);
 }
 
 .progressTrack {
@@ -523,7 +537,7 @@
 
 .table th {
     color: var(--sitecore-muted);
-    font-size: 0.8rem;
+    font-size: var(--sc-text-xs);
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
@@ -534,7 +548,7 @@
 
 .table td span {
     color: var(--sitecore-muted);
-    font-size: 0.85rem;
+    font-size: var(--sc-text-sm);
 }
 
 .detailRows {
@@ -552,6 +566,7 @@
 
 .detailRow span {
     color: var(--sitecore-muted);
+    font-size: var(--sc-text-sm);
 }
 
 .countPill {
@@ -559,8 +574,8 @@
     color: var(--sitecore-red-dark);
     border-radius: 999px;
     padding: 6px 10px;
-    font-size: 0.8rem;
-    font-weight: 700;
+    font-size: var(--sc-text-xs);
+    font-weight: var(--sc-font-semibold);
 }
 
 .badge {
@@ -569,8 +584,8 @@
     justify-content: center;
     padding: 6px 10px;
     border-radius: 999px;
-    font-size: 0.78rem;
-    font-weight: 700;
+    font-size: var(--sc-text-xs);
+    font-weight: var(--sc-font-semibold);
     text-transform: uppercase;
 }
 
@@ -597,6 +612,7 @@
 .emptyState {
     color: var(--sitecore-muted);
     padding: 12px 0;
+    font-size: var(--sc-text-sm);
 }
 
 .spin {
@@ -621,8 +637,57 @@
     background: #fff8fa;
     border: 1px solid #fde1e8;
     color: var(--sitecore-red-dark);
+    font-size: var(--sc-text-sm);
 }
 
+
+.secretInput {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.secretInput input {
+    flex: 1;
+    border: 1px solid var(--sitecore-border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: var(--sc-text-base);
+    background: #fcfcfc;
+}
+
+.authActions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.authStatus {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 12px;
+    background: #ecfdf5;
+    color: #047857;
+    font-size: var(--sc-text-sm);
+    font-weight: var(--sc-font-semibold);
+}
+
+.securityNote {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 12px;
+    background: #fff7ed;
+    color: #9a2c00;
+    font-size: var(--sc-text-xs);
+    margin-top: 12px;
+    line-height: 1.4;
+}
 @media (max-width: 1080px) {
     .app {
         grid-template-columns: 1fr;
