@@ -200,10 +200,17 @@ export function ContentBridgeApp() {
     };
 
     const validateSelection = async () => {
+        if (selectedItemIds.length === 0 || !transferName.trim()) return;
         setIsValidating(true);
-        const results = await service.validateDependencies(selectedItemIds);
-        setDependencyResults(results);
-        setIsValidating(false);
+        setApiError(null);
+        try {
+            const results = await service.validateDependencies(selectedItemIds, sourceId);
+            setDependencyResults(results);
+        } catch (err) {
+            setApiError(err instanceof Error ? err.message : 'Validation failed');
+        } finally {
+            setIsValidating(false);
+        }
     };
 
     const createTransfer = async () => {
@@ -540,7 +547,12 @@ function WizardPage({
                         <h2>3. Validate dependencies</h2>
                         <p>Check references before creating the Content Transfer API request.</p>
                     </div>
-                    <button className={styles.secondaryButton} onClick={validateSelection} type="button">
+                    <button
+                        className={styles.secondaryButton}
+                        disabled={isValidating || selectedItemIds.length === 0 || !transferName.trim()}
+                        onClick={validateSelection}
+                        type="button"
+                    >
                         {isValidating ? <Loader2 className={styles.spin} size={16} aria-hidden /> : <ListChecks size={16} aria-hidden />}
                         Validate
                     </button>

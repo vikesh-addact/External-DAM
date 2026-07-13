@@ -5,7 +5,7 @@ import type { ContentEnvironment, ContentTreeItem, DependencyFinding, MergeStrat
 export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
     getContentTree(environmentId: string): Promise<ContentTreeItem[]>;
-    validateDependencies(itemIds: string[]): Promise<DependencyFinding[]>;
+    validateDependencies(itemIds: string[], sourceEnvironmentId: string): Promise<DependencyFinding[]>;
     createContentTransfer(draft: TransferDraft): Promise<TransferRecord>;
     getTransfers(): Promise<TransferRecord[]>;
     retryTransfer(id: string): Promise<TransferRecord>;
@@ -28,6 +28,14 @@ const STRATEGY_MAP: Record<MergeStrategy, string> = {
 
 function uid(prefix: string): string {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function uuid(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
 }
 
 function ts(date: Date): string {
@@ -351,44 +359,41 @@ export function createContentBridgeService(): ContentBridgeService {
             return tree;
         },
 
-        async validateDependencies(itemIds) {
+        async validateDependencies(itemIds, sourceEnvironmentId) {
             if (itemIds.length === 0 || !sdkClient) return [];
 
             const findings: DependencyFinding[] = [];
-            try {
-                const result = await sdkClient.mutate('xmc.authoring.graphql', {
-                    params: {
-                        body: {
-                            query: `query ($ids: [String!]!) {
-                                items(ids: $ids) {
-                                    id name path
-                                    hasChildren
-                                }
-                            }`,
-                            variables: { ids: itemIds },
-                        },
+            const result = await sdkClient.mutate('xmc.authoring.graphql', {
+                params: {
+                    body: {
+                        query: `query ($ids: [String!]!) {
+                            items(ids: $ids) {
+                                id name path
+                                hasChildren
+                            }
+                        }`,
+                        variables: { ids: itemIds },
                     },
-                });
-                const payload = unwrap<Record<string, unknown>>(result);
-                const items = payload?.items as Array<Record<string, unknown>> | undefined;
-                if (!Array.isArray(items)) return [];
+                    query: { sitecoreContextId: sourceEnvironmentId },
+                },
+            });
+            const payload = unwrap<Record<string, unknown>>(result);
+            const items = payload?.items as Array<Record<string, unknown>> | undefined;
+            if (!Array.isArray(items)) return [];
 
-                const selectedSet = new Set(itemIds);
-                for (const item of items) {
-                    const id = item.id as string;
-                    const name = item.name as string;
-                    if ((item.hasChildren as boolean) && !selectedSet.has(id)) {
-                        findings.push({
-                            id: uid('dep'),
-                            itemName: name,
-                            dependency: 'Child items',
-                            severity: 'warning',
-                            message: `"${name}" has children that are not included in the selection.`,
-                        });
-                    }
+            const selectedSet = new Set(itemIds);
+            for (const item of items) {
+                const id = item.id as string;
+                const name = item.name as string;
+                if ((item.hasChildren as boolean) && !selectedSet.has(id)) {
+                    findings.push({
+                        id: uid('dep'),
+                        itemName: name,
+                        dependency: 'Child items',
+                        severity: 'warning',
+                        message: `"${name}" has children that are not included in the selection.`,
+                    });
                 }
-            } catch (err) {
-                console.warn('[ContentBridge] Dependency validation via GraphQL failed:', err);
             }
 
             return findings;
@@ -397,7 +402,7 @@ export function createContentBridgeService(): ContentBridgeService {
         async createContentTransfer(draft) {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
-            const transferId = uid('tr');
+            const transferId = uuid();
             const now = ts(new Date());
 
             const dataTrees = draft.selectedItemIds.map((id) => {
