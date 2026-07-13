@@ -90,7 +90,7 @@ function environmentsFromResources(resources: unknown[]): ContentEnvironment[] {
                 region: 'Global',
                 type: 'Production',
                 status: 'Connected',
-            }
+            },
         );
     }
     return envs;
@@ -103,20 +103,12 @@ function pageToTreeItem(page: Record<string, unknown>): ContentTreeItem {
     if (id && path) itemIdToPath.set(id, path);
 
     const rawChildren = page.children;
-    const children = Array.isArray(rawChildren)
-        ? (rawChildren as Record<string, unknown>[]).map(pageToTreeItem)
-        : [];
+    const children = Array.isArray(rawChildren) ? (rawChildren as Record<string, unknown>[]).map(pageToTreeItem) : [];
 
     return { id, name, path, template: '', updatedAt: '', dependencies: [], children };
 }
 
-async function fetchChildrenRecursive(
-    sdk: ClientSDK,
-    siteId: string,
-    pageId: string,
-    contextId: string,
-    depth = 0,
-): Promise<ContentTreeItem[]> {
+async function fetchChildrenRecursive(sdk: ClientSDK, siteId: string, pageId: string, contextId: string, depth = 0): Promise<ContentTreeItem[]> {
     if (depth >= 4 || !pageId) return [];
     try {
         const res = await sdk.query('xmc.xmapp.listPageChildren', {
@@ -159,9 +151,7 @@ function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
 
     const childContainer = node.children as Record<string, unknown> | undefined;
     const rawResults = childContainer?.results;
-    const children = Array.isArray(rawResults)
-        ? (rawResults as Record<string, unknown>[]).map(gqlNodeToTreeItem)
-        : [];
+    const children = Array.isArray(rawResults) ? (rawResults as Record<string, unknown>[]).map(gqlNodeToTreeItem) : [];
 
     return { id, name, path, template: '', updatedAt: '', dependencies: [], children };
 }
@@ -240,7 +230,9 @@ async function applyTransfer(rec: TransferRecord) {
     if (!sdkClient || !rec.chunkSetsMetadata?.length) return;
 
     if (!rec.sourceEnvironmentId || !rec.destinationEnvironmentId) {
-        console.error(`[ContentBridge] applyTransfer ABORTED: missing environment IDs. source=${JSON.stringify(rec.sourceEnvironmentId)}, dest=${JSON.stringify(rec.destinationEnvironmentId)}, recordId=${rec.id}`);
+        console.error(
+            `[ContentBridge] applyTransfer ABORTED: missing environment IDs. source=${JSON.stringify(rec.sourceEnvironmentId)}, dest=${JSON.stringify(rec.destinationEnvironmentId)}, recordId=${rec.id}`,
+        );
         rec.status = 'failed';
         rec.failureReason = `Missing environment IDs: source=${rec.sourceEnvironmentId || '(empty)'}, destination=${rec.destinationEnvironmentId || '(empty)'}`;
         rec.updatedAt = ts(new Date());
@@ -354,14 +346,18 @@ async function applyTransfer(rec: TransferRecord) {
             rec.progress = 85;
             rec.updatedAt = ts(new Date());
 
-            const consumeFileName = rec.contentTransferFileName;
-            audit('ConsumeFile starting', `file=${consumeFileName}, env=${rec.destinationEnvironmentId}`);
+            const normalizedFileName =
+                rec.contentTransferFileName.startsWith('blob://') || rec.contentTransferFileName.startsWith('file://')
+                    ? rec.contentTransferFileName
+                    : `blob://${rec.contentTransferFileName}`;
+
+            audit('ConsumeFile starting', `file=${normalizedFileName}, env=${rec.destinationEnvironmentId}`);
 
             const consumeRes = await sdkClient.query('xmc.contentTransfer.consumeFile', {
                 params: {
                     query: {
                         databaseName: 'master',
-                        fileName: consumeFileName,
+                        fileName: normalizedFileName,
                         sitecoreContextId: rec.destinationEnvironmentId,
                     },
                 },
@@ -373,7 +369,7 @@ async function applyTransfer(rec: TransferRecord) {
                 throw new Error(`consumeFile failed: ${errMsg}`);
             }
 
-            audit('ConsumeFile accepted', `file=${consumeFileName}`);
+            audit('ConsumeFile accepted', `file=${normalizedFileName}`);
 
             rec.progress = 90;
             rec.updatedAt = ts(new Date());
@@ -384,7 +380,7 @@ async function applyTransfer(rec: TransferRecord) {
                     const blobRes = await sdkClient.query('xmc.contentTransfer.getBlobState', {
                         params: {
                             query: {
-                        fileName: `blob://${rec.contentTransferFileName}`,
+                                fileName: normalizedFileName,
                                 sitecoreContextId: rec.destinationEnvironmentId,
                             },
                         },
@@ -675,7 +671,9 @@ export function createContentBridgeService(): ContentBridgeService {
                             const statusData = unwrap<Record<string, unknown>>(res.data);
                             if (statusData?.State) {
                                 const state = (statusData.State as string).toLowerCase();
-                                const chunksMeta = statusData.ChunkSetsMetadata as Array<{ ChunkSetId: string; ChunkCount: number; TotalItemCount: number }> | undefined;
+                                const chunksMeta = statusData.ChunkSetsMetadata as
+                                    | Array<{ ChunkSetId: string; ChunkCount: number; TotalItemCount: number }>
+                                    | undefined;
 
                                 if (state === 'completed' && chunksMeta?.length) {
                                     rec.chunkSetsMetadata = chunksMeta;
