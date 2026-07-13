@@ -204,7 +204,7 @@ export function ContentBridgeApp() {
         setIsValidating(true);
         setApiError(null);
         try {
-            const results = await service.validateDependencies(selectedItemIds, sourceId);
+            const results = await service.validateDependencies(selectedItemIds, tree);
             setDependencyResults(results);
         } catch (err) {
             setApiError(err instanceof Error ? err.message : 'Validation failed');
@@ -557,6 +557,16 @@ function WizardPage({
                         Validate
                     </button>
                 </div>
+                {selectedItemIds.length === 0 || !transferName.trim() ? (
+                    <div className={styles.hintMessage}>
+                        <AlertTriangle size={14} aria-hidden />
+                        {selectedItemIds.length === 0 && !transferName.trim()
+                            ? 'Enter a transfer name and select items to validate.'
+                            : selectedItemIds.length === 0
+                                ? 'Select items from the tree to validate.'
+                                : 'Enter a transfer name to enable validation.'}
+                    </div>
+                ) : null}
                 <div className={styles.dependencyList}>
                     {dependencyResults.length === 0 ? (
                         <div className={styles.emptyState}>Run validation after selecting content.</div>
@@ -601,6 +611,12 @@ function WizardPage({
                     {isCreating ? <Loader2 className={styles.spin} size={18} aria-hidden /> : <Database size={18} aria-hidden />}
                     Create Content Transfer request
                 </button>
+                {!transferName.trim() && (
+                    <div className={styles.hintMessage}>
+                        <AlertTriangle size={14} aria-hidden />
+                        Enter a transfer name to create a transfer request.
+                    </div>
+                )}
             </section>
         </div>
     );

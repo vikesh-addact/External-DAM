@@ -203,6 +203,19 @@
     border: 1px solid #ffd1a7;
 }
 
+.hintMessage {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: #fff7ed;
+    color: #9a2c00;
+    border: 1px solid #ffd1a7;
+    font-size: var(--sc-text-sm);
+    margin-top: 8px;
+}
+
 .pageGrid,
 .wizardGrid,
 .detailsGrid,

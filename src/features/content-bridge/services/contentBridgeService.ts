@@ -5,7 +5,7 @@ import type { ContentEnvironment, ContentTreeItem, DependencyFinding, MergeStrat
 export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
     getContentTree(environmentId: string): Promise<ContentTreeItem[]>;
-    validateDependencies(itemIds: string[], sourceEnvironmentId: string): Promise<DependencyFinding[]>;
+    validateDependencies(itemIds: string[], tree: ContentTreeItem[]): Promise<DependencyFinding[]>;
     createContentTransfer(draft: TransferDraft): Promise<TransferRecord>;
     getTransfers(): Promise<TransferRecord[]>;
     retryTransfer(id: string): Promise<TransferRecord>;
@@ -359,43 +359,31 @@ export function createContentBridgeService(): ContentBridgeService {
             return tree;
         },
 
-        async validateDependencies(itemIds, sourceEnvironmentId) {
-            if (itemIds.length === 0 || !sdkClient) return [];
+        async validateDependencies(itemIds, tree) {
+            if (itemIds.length === 0) return [];
 
             const findings: DependencyFinding[] = [];
-            const result = await sdkClient.mutate('xmc.authoring.graphql', {
-                params: {
-                    body: {
-                        query: `query ($ids: [String!]!) {
-                            items(ids: $ids) {
-                                id name path
-                                hasChildren
-                            }
-                        }`,
-                        variables: { ids: itemIds },
-                    },
-                    query: { sitecoreContextId: sourceEnvironmentId },
-                },
-            });
-            const payload = unwrap<Record<string, unknown>>(result);
-            const items = payload?.items as Array<Record<string, unknown>> | undefined;
-            if (!Array.isArray(items)) return [];
-
             const selectedSet = new Set(itemIds);
-            for (const item of items) {
-                const id = item.id as string;
-                const name = item.name as string;
-                if ((item.hasChildren as boolean) && !selectedSet.has(id)) {
-                    findings.push({
-                        id: uid('dep'),
-                        itemName: name,
-                        dependency: 'Child items',
-                        severity: 'warning',
-                        message: `"${name}" has children that are not included in the selection.`,
-                    });
+
+            function walk(items: ContentTreeItem[]) {
+                for (const item of items) {
+                    if (item.children?.length) {
+                        const hasUnselectedChildren = item.children.some((child) => !selectedSet.has(child.id));
+                        if (selectedSet.has(item.id) && hasUnselectedChildren) {
+                            findings.push({
+                                id: uid('dep'),
+                                itemName: item.name,
+                                dependency: 'Child items',
+                                severity: 'warning',
+                                message: `"${item.name}" has children that are not included in the selection.`,
+                            });
+                        }
+                        walk(item.children);
+                    }
                 }
             }
 
+            walk(tree);
             return findings;
         },
 
@@ -418,8 +406,9 @@ export function createContentBridgeService(): ContentBridgeService {
                 };
             });
 
+            let serverTransferId = transferId;
             try {
-                await sdkClient.mutate('xmc.contentTransfer.createContentTransfer', {
+                const res = await sdkClient.mutate('xmc.contentTransfer.createContentTransfer', {
                     params: {
                         body: {
                             transferId,
@@ -428,12 +417,16 @@ export function createContentBridgeService(): ContentBridgeService {
                         query: { sitecoreContextId: draft.sourceEnvironmentId },
                     },
                 });
+                const resData = unwrap<Record<string, unknown>>(res);
+                if (resData && typeof resData === 'object' && 'transferId' in resData) {
+                    serverTransferId = (resData.transferId as string) || transferId;
+                }
             } catch (err) {
                 throw new Error(`Content Transfer creation failed: ${err instanceof Error ? err.message : String(err)}`);
             }
 
             const record: TransferRecord = {
-                id: transferId,
+                id: serverTransferId,
                 name: draft.name,
                 sourceEnvironmentId: draft.sourceEnvironmentId,
                 destinationEnvironmentId: draft.destinationEnvironmentId,
