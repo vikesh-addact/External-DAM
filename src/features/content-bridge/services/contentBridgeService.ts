@@ -354,13 +354,14 @@ async function applyTransfer(rec: TransferRecord) {
             rec.progress = 85;
             rec.updatedAt = ts(new Date());
 
-            audit('ConsumeFile starting', `file=blob://${rec.contentTransferFileName}, env=${rec.destinationEnvironmentId}`);
+            const consumeFileName = rec.contentTransferFileName;
+            audit('ConsumeFile starting', `file=${consumeFileName}, env=${rec.destinationEnvironmentId}`);
 
             const consumeRes = await sdkClient.query('xmc.contentTransfer.consumeFile', {
                 params: {
                     query: {
                         databaseName: 'master',
-                        fileName: `blob://${rec.contentTransferFileName}`,
+                        fileName: consumeFileName,
                         sitecoreContextId: rec.destinationEnvironmentId,
                     },
                 },
@@ -372,7 +373,7 @@ async function applyTransfer(rec: TransferRecord) {
                 throw new Error(`consumeFile failed: ${errMsg}`);
             }
 
-            audit('ConsumeFile accepted', `file=blob://${rec.contentTransferFileName}`);
+            audit('ConsumeFile accepted', `file=${consumeFileName}`);
 
             rec.progress = 90;
             rec.updatedAt = ts(new Date());
