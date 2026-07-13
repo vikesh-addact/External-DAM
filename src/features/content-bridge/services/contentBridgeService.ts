@@ -243,6 +243,7 @@ async function applyTransfer(rec: TransferRecord) {
     try {
         const totalChunks = rec.chunkSetsMetadata.reduce((sum, cs) => sum + cs.ChunkCount, 0);
         let completedChunks = 0;
+        console.log(`[ContentBridge] Starting apply for transfer ${rec.id}: ${rec.chunkSetsMetadata.length} chunk set(s), ${totalChunks} chunk(s)`);
 
         for (const chunkSet of rec.chunkSetsMetadata) {
             for (let chunkIdx = 0; chunkIdx < chunkSet.ChunkCount; chunkIdx++) {
@@ -297,7 +298,7 @@ async function applyTransfer(rec: TransferRecord) {
             rec.progress = 85;
             rec.updatedAt = ts(new Date());
 
-            await sdkClient.query('xmc.contentTransfer.consumeFile', {
+            const consumeRes = await sdkClient.query('xmc.contentTransfer.consumeFile', {
                 params: {
                     query: {
                         databaseName: 'master',
@@ -306,6 +307,12 @@ async function applyTransfer(rec: TransferRecord) {
                     },
                 },
             });
+
+            if (consumeRes.error) {
+                throw new Error(`consumeFile failed: ${consumeRes.error.message || JSON.stringify(consumeRes.error)}`);
+            }
+
+            console.log(`[ContentBridge] consumeFile initiated for ${rec.contentTransferFileName} on ${rec.destinationEnvironmentId}`);
 
             rec.progress = 90;
             rec.updatedAt = ts(new Date());
@@ -321,16 +328,24 @@ async function applyTransfer(rec: TransferRecord) {
                             },
                         },
                     });
+
+                    if (blobRes.error) {
+                        console.warn(`[ContentBridge] getBlobState query error (attempt ${attempt + 1}):`, blobRes.error.message || blobRes.error);
+                        continue;
+                    }
+
                     const blobData = unwrap<Record<string, unknown>>(blobRes.data);
-                    const status = blobData?.status as string | undefined;
-                    if (status === 'OK' || status === 'Completed') {
+                    const blobStatus = blobData?.status as string | undefined;
+                    console.log(`[ContentBridge] getBlobState attempt ${attempt + 1}: status=${blobStatus}`);
+
+                    if (blobStatus === 'OK' || blobStatus === 'Completed') {
                         rec.status = 'completed';
                         rec.progress = 100;
                         rec.updatedAt = ts(new Date());
                         applyingTransfers.delete(rec.id);
                         return;
                     }
-                    if (status === 'Error') {
+                    if (blobStatus === 'Error') {
                         throw new Error(`Blob consumption failed: ${JSON.stringify(blobData?.details ?? '')}`);
                     }
                 } catch (err) {
