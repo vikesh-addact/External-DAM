@@ -282,9 +282,11 @@ async function applyTransfer(rec: TransferRecord) {
                         query: { sitecoreContextId: rec.destinationEnvironmentId },
                     },
                 });
-                const completeData = completeRes as Record<string, unknown> | undefined;
+                const completeData = unwrap<Record<string, unknown>>(completeRes);
+                console.log(`[ContentBridge] completeChunkSetTransfer result:`, completeData);
                 if (completeData && typeof completeData === 'object' && 'ContentTransferFileName' in completeData) {
                     rec.contentTransferFileName = (completeData.ContentTransferFileName as string) || undefined;
+                    console.log(`[ContentBridge] ContentTransferFileName: ${rec.contentTransferFileName}`);
                 }
                 rec.progress = 75;
                 rec.updatedAt = ts(new Date());
