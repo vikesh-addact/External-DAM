@@ -116,12 +116,19 @@ async function fetchChildrenRecursive(
                 query: { sitecoreContextId: contextId },
             },
         });
-        const hierData = unwrap<Record<string, unknown>>(res.data);
-        const rawChildren = hierData?.children;
-        if (!Array.isArray(rawChildren)) return [];
+        const raw = unwrap<unknown>(res.data);
+        let children: Record<string, unknown>[] = [];
+        if (Array.isArray(raw)) {
+            children = raw as Record<string, unknown>[];
+        } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            const obj = raw as Record<string, unknown>;
+            if (Array.isArray(obj.children)) children = obj.children as Record<string, unknown>[];
+        }
+        console.log(`[ContentBridge] listPageChildren pageId=${pageId} depth=${depth} → ${children.length} items`);
+        if (children.length === 0) return [];
 
         return Promise.all(
-            (rawChildren as Record<string, unknown>[]).map(async (child) => {
+            children.map(async (child) => {
                 const item = pageToTreeItem(child);
                 if (child.hasChildren) {
                     item.children = await fetchChildrenRecursive(sdk, siteId, child.id as string, contextId, depth + 1);
