@@ -325,7 +325,7 @@ async function applyTransfer(rec: TransferRecord) {
                     const blobRes = await sdkClient.query('xmc.contentTransfer.getBlobState', {
                         params: {
                             query: {
-                                fileName: rec.contentTransferFileName,
+                        fileName: `blob://${rec.contentTransferFileName}`,
                                 sitecoreContextId: rec.destinationEnvironmentId,
                             },
                         },
