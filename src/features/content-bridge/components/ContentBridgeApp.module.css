@@ -373,6 +373,39 @@
     margin-top: 8px;
 }
 
+.expandButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    color: inherit;
+    border-radius: 4px;
+}
+
+.expandButton:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.expandButton svg {
+    transition: transform 0.15s ease;
+}
+
+.expandButton svg.expanded {
+    transform: rotate(90deg);
+}
+
+.expandPlaceholder {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
 .dependencyList,
 .monitorList,
 .auditList,

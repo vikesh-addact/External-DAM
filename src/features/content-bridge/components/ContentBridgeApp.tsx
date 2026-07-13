@@ -94,6 +94,7 @@ export function ContentBridgeApp() {
     const [sourceId, setSourceId] = useState('');
     const [destinationId, setDestinationId] = useState('');
     const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+    const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [strategy, setStrategy] = useState<MergeStrategy>('merge');
     const [transferName, setTransferName] = useState('');
     const [dependencyResults, setDependencyResults] = useState<DependencyFinding[]>([]);
@@ -180,6 +181,18 @@ export function ContentBridgeApp() {
             }
 
             return Array.from(new Set([...current, ...ids]));
+        });
+    };
+
+    const toggleExpand = (id: string) => {
+        setExpandedIds((current) => {
+            const next = new Set(current);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
         });
     };
 
@@ -316,6 +329,7 @@ export function ContentBridgeApp() {
                         dependencyResults={dependencyResults}
                         destinationId={destinationId}
                         environments={environments}
+                        expandedIds={expandedIds}
                         isCreating={isCreating}
                         isValidating={isValidating}
                         selectedItemIds={selectedItemIds}
@@ -326,6 +340,7 @@ export function ContentBridgeApp() {
                         setTransferName={setTransferName}
                         sourceId={sourceId}
                         strategy={strategy}
+                        toggleExpand={toggleExpand}
                         transferName={transferName}
                         tree={tree}
                         toggleItem={toggleItem}
@@ -427,6 +442,7 @@ function WizardPage({
     dependencyResults,
     destinationId,
     environments,
+    expandedIds,
     isCreating,
     isValidating,
     selectedItemIds,
@@ -437,6 +453,7 @@ function WizardPage({
     setTransferName,
     sourceId,
     strategy,
+    toggleExpand,
     transferName,
     tree,
     toggleItem,
@@ -447,6 +464,7 @@ function WizardPage({
     dependencyResults: DependencyFinding[];
     destinationId: string;
     environments: ContentEnvironment[];
+    expandedIds: Set<string>;
     isCreating: boolean;
     isValidating: boolean;
     selectedItemIds: string[];
@@ -457,6 +475,7 @@ function WizardPage({
     setTransferName: (name: string) => void;
     sourceId: string;
     strategy: MergeStrategy;
+    toggleExpand: (id: string) => void;
     transferName: string;
     tree: ContentTreeItem[];
     toggleItem: (item: ContentTreeItem, includeSubtree?: boolean) => void;
@@ -500,7 +519,14 @@ function WizardPage({
                 </div>
                 <div className={styles.tree}>
                     {tree.map((item) => (
-                        <TreeNode item={item} key={item.id} selectedItemIds={selectedItemIds} toggleItem={toggleItem} />
+                        <TreeNode
+                            item={item}
+                            key={item.id}
+                            selectedItemIds={selectedItemIds}
+                            toggleItem={toggleItem}
+                            expandedIds={expandedIds}
+                            toggleExpand={toggleExpand}
+                        />
                     ))}
                 </div>
             </section>
@@ -814,30 +840,52 @@ function TreeNode({
     item,
     selectedItemIds,
     toggleItem,
+    expandedIds,
+    toggleExpand,
 }: {
     item: ContentTreeItem;
     selectedItemIds: string[];
     toggleItem: (item: ContentTreeItem, includeSubtree?: boolean) => void;
+    expandedIds: Set<string>;
+    toggleExpand: (id: string) => void;
 }) {
     const hasChildren = Boolean(item.children?.length);
+    const isExpanded = expandedIds.has(item.id);
 
     return (
         <div className={styles.treeNode}>
             <div className={styles.treeRow}>
+                {hasChildren ? (
+                    <button
+                        className={styles.expandButton}
+                        onClick={() => toggleExpand(item.id)}
+                        title={isExpanded ? 'Collapse' : 'Expand'}
+                        type="button"
+                    >
+                        <ChevronRight size={14} className={isExpanded ? styles.expanded : ''} aria-hidden />
+                    </button>
+                ) : (
+                    <span className={styles.expandPlaceholder} />
+                )}
                 <label>
                     <input checked={selectedItemIds.includes(item.id)} onChange={() => toggleItem(item)} type="checkbox" />
                     <span>{item.name}</span>
                 </label>
-                {hasChildren && (
-                    <button className={styles.iconButton} onClick={() => toggleItem(item, true)} title="Toggle subtree" type="button">
-                        <FolderTree size={15} aria-hidden />
-                    </button>
-                )}
+                <button className={styles.iconButton} onClick={() => toggleItem(item, true)} title="Select subtree" type="button">
+                    <FolderTree size={15} aria-hidden />
+                </button>
             </div>
-            {hasChildren && (
+            {hasChildren && isExpanded && (
                 <div className={styles.treeChildren}>
                     {item.children?.map((child) => (
-                        <TreeNode item={child} key={child.id} selectedItemIds={selectedItemIds} toggleItem={toggleItem} />
+                        <TreeNode
+                            item={child}
+                            key={child.id}
+                            selectedItemIds={selectedItemIds}
+                            toggleItem={toggleItem}
+                            expandedIds={expandedIds}
+                            toggleExpand={toggleExpand}
+                        />
                     ))}
                 </div>
             )}
