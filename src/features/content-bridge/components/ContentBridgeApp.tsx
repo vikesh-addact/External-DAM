@@ -514,6 +514,8 @@ function WizardPage({
 }) {
     const canCreate =
         transferName.trim().length > 0 &&
+        sourceId.length > 0 &&
+        destinationId.length > 0 &&
         sourceId !== destinationId &&
         selectedItemIds.length > 0 &&
         dependencyResults.every((finding) => finding.severity !== 'critical');

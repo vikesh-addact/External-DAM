@@ -238,6 +238,16 @@ const CONTENT_TREE_GQL = `query {
 
 async function applyTransfer(rec: TransferRecord) {
     if (!sdkClient || !rec.chunkSetsMetadata?.length) return;
+
+    if (!rec.sourceEnvironmentId || !rec.destinationEnvironmentId) {
+        console.error(`[ContentBridge] applyTransfer ABORTED: missing environment IDs. source=${JSON.stringify(rec.sourceEnvironmentId)}, dest=${JSON.stringify(rec.destinationEnvironmentId)}, recordId=${rec.id}`);
+        rec.status = 'failed';
+        rec.failureReason = `Missing environment IDs: source=${rec.sourceEnvironmentId || '(empty)'}, destination=${rec.destinationEnvironmentId || '(empty)'}`;
+        rec.updatedAt = ts(new Date());
+        applyingTransfers.delete(rec.id);
+        return;
+    }
+
     applyingTransfers.add(rec.id);
 
     try {
