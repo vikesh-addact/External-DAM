@@ -250,13 +250,16 @@ async function applyTransfer(rec: TransferRecord) {
 
     applyingTransfers.add(rec.id);
 
+    const audit = (action: string, detail: string) => {
+        rec.auditLog.push({ id: uid('audit'), timestamp: ts(new Date()), actor: 'System', action, detail });
+    };
+
     try {
         const totalChunks = rec.chunkSetsMetadata.reduce((sum, cs) => sum + cs.ChunkCount, 0);
         let completedChunks = 0;
-        console.log(`[ContentBridge] Starting apply for transfer ${rec.id}: ${rec.chunkSetsMetadata.length} chunk set(s), ${totalChunks} chunk(s)`);
+        audit('Apply started', `${rec.chunkSetsMetadata.length} chunk set(s), ${totalChunks} chunk(s)`);
 
         for (const chunkSet of rec.chunkSetsMetadata) {
-            console.log(`[ContentBridge] Processing chunk set ${chunkSet.ChunkSetId}: ${chunkSet.ChunkCount} chunk(s)`);
             for (let chunkIdx = 0; chunkIdx < chunkSet.ChunkCount; chunkIdx++) {
                 try {
                     const chunkRes = await sdkClient.query('xmc.contentTransfer.getChunk', {
@@ -269,7 +272,6 @@ async function applyTransfer(rec: TransferRecord) {
                     let chunkData: Blob;
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const d = chunkRes.data as any;
-                    console.log(`[ContentBridge] getChunk raw: keys=${d ? Object.keys(d).join(',') : 'null'}, type=${typeof d}`);
 
                     if (d instanceof Blob) {
                         chunkData = d;
@@ -292,20 +294,22 @@ async function applyTransfer(rec: TransferRecord) {
                     } else if (d?.buffer instanceof ArrayBuffer) {
                         chunkData = new Blob([d.buffer], { type: 'application/octet-stream' });
                     } else {
-                        console.error(`[ContentBridge] Could not extract binary data. Full object:`, JSON.stringify(d, (key, value) => {
+                        const shape = JSON.stringify(d, (key, value) => {
                             if (value instanceof ArrayBuffer) return `ArrayBuffer(${value.byteLength})`;
                             if (value instanceof Blob) return `Blob(${value.size})`;
                             if (value instanceof Response) return `Response(${value.status})`;
                             return value;
-                        }));
+                        });
+                        audit('Chunk extraction failed', `Set ${chunkSet.ChunkSetId} chunk ${chunkIdx}: no known data shape. Raw: ${shape}`);
                         throw new Error('Failed to extract chunk binary data from getChunk response');
                     }
 
-                    console.log(`[ContentBridge] saveChunk body: size=${chunkData.size}, type=${chunkData.type}`);
-
                     if (chunkData.size === 0) {
+                        audit('Chunk data empty', `Set ${chunkSet.ChunkSetId} chunk ${chunkIdx}: 0 bytes. Keys: ${Object.keys(d || {}).join(',')}`);
                         throw new Error(`Extracted chunk data is empty (0 bytes). Raw response keys: ${Object.keys(d || {}).join(',')}`);
                     }
+
+                    audit('Chunk extracted', `Set ${chunkSet.ChunkSetId} chunk ${chunkIdx}: ${chunkData.size} bytes, type=${chunkData.type}`);
 
                     await sdkClient.mutate('xmc.contentTransfer.saveChunk', {
                         params: {
@@ -314,7 +318,8 @@ async function applyTransfer(rec: TransferRecord) {
                             query: { sitecoreContextId: rec.destinationEnvironmentId },
                         },
                     });
-                    console.log(`[ContentBridge] saveChunk OK for chunk ${chunkIdx}`);
+
+                    audit('Chunk saved', `Set ${chunkSet.ChunkSetId} chunk ${chunkIdx}: ${chunkData.size} bytes pushed to destination`);
 
                     completedChunks++;
                     rec.progress = 20 + Math.round((completedChunks / totalChunks) * 50);
@@ -333,15 +338,14 @@ async function applyTransfer(rec: TransferRecord) {
                     },
                 });
                 const completeData = unwrap<Record<string, unknown>>(completeRes);
-                console.log(`[ContentBridge] completeChunkSetTransfer result:`, completeData);
                 if (completeData && typeof completeData === 'object' && 'ContentTransferFileName' in completeData) {
                     rec.contentTransferFileName = (completeData.ContentTransferFileName as string) || undefined;
-                    console.log(`[ContentBridge] ContentTransferFileName: ${rec.contentTransferFileName}`);
                 }
+                audit('Chunk set completed', `Set ${chunkSet.ChunkSetId}: fileName=${rec.contentTransferFileName || '(none)'}`);
                 rec.progress = 75;
                 rec.updatedAt = ts(new Date());
             } catch (err) {
-                console.error(`[ContentBridge] Failed to complete chunk set ${chunkSet.ChunkSetId}:`, err);
+                audit('Chunk set completion failed', `Set ${chunkSet.ChunkSetId}: ${err instanceof Error ? err.message : String(err)}`);
                 throw err;
             }
         }
@@ -349,6 +353,8 @@ async function applyTransfer(rec: TransferRecord) {
         if (rec.contentTransferFileName) {
             rec.progress = 85;
             rec.updatedAt = ts(new Date());
+
+            audit('ConsumeFile starting', `file=blob://${rec.contentTransferFileName}, env=${rec.destinationEnvironmentId}`);
 
             const consumeRes = await sdkClient.query('xmc.contentTransfer.consumeFile', {
                 params: {
@@ -361,10 +367,12 @@ async function applyTransfer(rec: TransferRecord) {
             });
 
             if (consumeRes.error) {
-                throw new Error(`consumeFile failed: ${consumeRes.error.message || JSON.stringify(consumeRes.error)}`);
+                const errMsg = consumeRes.error.message || JSON.stringify(consumeRes.error);
+                audit('ConsumeFile failed', errMsg);
+                throw new Error(`consumeFile failed: ${errMsg}`);
             }
 
-            console.log(`[ContentBridge] consumeFile initiated for ${rec.contentTransferFileName} on ${rec.destinationEnvironmentId}`);
+            audit('ConsumeFile accepted', `file=blob://${rec.contentTransferFileName}`);
 
             rec.progress = 90;
             rec.updatedAt = ts(new Date());
@@ -382,16 +390,20 @@ async function applyTransfer(rec: TransferRecord) {
                     });
 
                     if (blobRes.error) {
-                        console.warn(`[ContentBridge] getBlobState query error (attempt ${attempt + 1}):`, blobRes.error.message || blobRes.error);
+                        audit('GetBlobState query error', `attempt ${attempt + 1}: ${blobRes.error.message || JSON.stringify(blobRes.error)}`);
                         continue;
                     }
 
                     const blobData = unwrap<Record<string, unknown>>(blobRes.data);
                     const blobStatus = (blobData?.BlobState ?? blobData?.status) as string | undefined;
                     const blobError = (blobData?.Error ?? blobData?.details) as string | undefined;
-                    console.log(`[ContentBridge] getBlobState attempt ${attempt + 1}: BlobState=${blobStatus}`);
+
+                    if (attempt === 0 || blobStatus === 'Error') {
+                        audit('GetBlobState', `attempt ${attempt + 1}: BlobState=${blobStatus}${blobError ? ', Error=' + blobError : ''}`);
+                    }
 
                     if (blobStatus === 'OK' || blobStatus === 'Completed') {
+                        audit('Blob consumed', `Status: ${blobStatus}`);
                         rec.status = 'completed';
                         rec.progress = 100;
                         rec.updatedAt = ts(new Date());
@@ -399,7 +411,6 @@ async function applyTransfer(rec: TransferRecord) {
                         return;
                     }
                     if (blobStatus === 'NotFound') {
-                        console.log(`[ContentBridge] Blob not yet available, retrying...`);
                         continue;
                     }
                     if (blobStatus === 'Error') {
