@@ -19,6 +19,7 @@ let sdkClient: ClientSDK | null = null;
 let appContextData: ApplicationContext | null = null;
 let transferRecords: TransferRecord[] = [];
 const itemIdToPath = new Map<string, string>();
+const applyingTransfers = new Set<string>();
 
 const STRATEGY_MAP: Record<MergeStrategy, string> = {
     overwrite: 'OverrideExistingItem',
@@ -234,6 +235,129 @@ const CONTENT_TREE_GQL = `query {
         }
     }
 }`;
+
+async function applyTransfer(rec: TransferRecord) {
+    if (!sdkClient || !rec.chunkSetsMetadata?.length) return;
+    applyingTransfers.add(rec.id);
+
+    try {
+        const totalChunks = rec.chunkSetsMetadata.reduce((sum, cs) => sum + cs.ChunkCount, 0);
+        let completedChunks = 0;
+
+        for (const chunkSet of rec.chunkSetsMetadata) {
+            for (let chunkIdx = 0; chunkIdx < chunkSet.ChunkCount; chunkIdx++) {
+                try {
+                    const chunkRes = await sdkClient.query('xmc.contentTransfer.getChunk', {
+                        params: {
+                            path: { transferId: rec.id, chunksetId: chunkSet.ChunkSetId, chunkId: chunkIdx },
+                            query: { sitecoreContextId: rec.sourceEnvironmentId },
+                        },
+                    });
+
+                    const chunkData = (chunkRes as unknown as { data: Blob | File }).data;
+
+                    await sdkClient.mutate('xmc.contentTransfer.saveChunk', {
+                        params: {
+                            body: chunkData,
+                            path: { transferId: rec.id, chunksetId: chunkSet.ChunkSetId, chunkId: chunkIdx },
+                            query: { sitecoreContextId: rec.destinationEnvironmentId },
+                        },
+                    });
+
+                    completedChunks++;
+                    rec.progress = 20 + Math.round((completedChunks / totalChunks) * 50);
+                    rec.updatedAt = ts(new Date());
+                } catch (err) {
+                    console.error(`[ContentBridge] Failed to transfer chunk ${chunkIdx} of set ${chunkSet.ChunkSetId}:`, err);
+                    throw err;
+                }
+            }
+
+            try {
+                const completeRes = await sdkClient.mutate('xmc.contentTransfer.completeChunkSetTransfer', {
+                    params: {
+                        path: { transferId: rec.id, chunksetId: chunkSet.ChunkSetId },
+                        query: { sitecoreContextId: rec.destinationEnvironmentId },
+                    },
+                });
+                const completeData = unwrap<Record<string, unknown>>(completeRes);
+                if (completeData && typeof completeData === 'object' && 'ContentTransferFileName' in completeData) {
+                    rec.contentTransferFileName = (completeData.ContentTransferFileName as string) || undefined;
+                }
+                rec.progress = 75;
+                rec.updatedAt = ts(new Date());
+            } catch (err) {
+                console.error(`[ContentBridge] Failed to complete chunk set ${chunkSet.ChunkSetId}:`, err);
+                throw err;
+            }
+        }
+
+        if (rec.contentTransferFileName) {
+            rec.progress = 85;
+            rec.updatedAt = ts(new Date());
+
+            await sdkClient.query('xmc.contentTransfer.consumeFile', {
+                params: {
+                    query: {
+                        databaseName: 'master',
+                        fileName: rec.contentTransferFileName,
+                        sitecoreContextId: rec.destinationEnvironmentId,
+                    },
+                },
+            });
+
+            rec.progress = 90;
+            rec.updatedAt = ts(new Date());
+
+            for (let attempt = 0; attempt < 30; attempt++) {
+                await new Promise((r) => setTimeout(r, 3000));
+                try {
+                    const blobRes = await sdkClient.query('xmc.contentTransfer.getBlobState', {
+                        params: {
+                            query: {
+                                fileName: rec.contentTransferFileName,
+                                sitecoreContextId: rec.destinationEnvironmentId,
+                            },
+                        },
+                    });
+                    const blobData = unwrap<Record<string, unknown>>(blobRes.data);
+                    const status = blobData?.status as string | undefined;
+                    if (status === 'OK' || status === 'Completed') {
+                        rec.status = 'completed';
+                        rec.progress = 100;
+                        rec.updatedAt = ts(new Date());
+                        applyingTransfers.delete(rec.id);
+                        return;
+                    }
+                    if (status === 'Error') {
+                        throw new Error(`Blob consumption failed: ${JSON.stringify(blobData?.details ?? '')}`);
+                    }
+                } catch (err) {
+                    if ((err as Error).message.startsWith('Blob consumption')) throw err;
+                }
+            }
+
+            throw new Error('Blob consumption timed out after 90 seconds');
+        }
+
+        rec.status = 'completed';
+        rec.progress = 100;
+        rec.updatedAt = ts(new Date());
+    } catch (err) {
+        rec.status = 'failed';
+        rec.failureReason = err instanceof Error ? err.message : String(err);
+        rec.updatedAt = ts(new Date());
+        rec.auditLog.push({
+            id: uid('audit'),
+            timestamp: ts(new Date()),
+            actor: 'System',
+            action: 'Transfer apply failed',
+            detail: rec.failureReason,
+        });
+    } finally {
+        applyingTransfers.delete(rec.id);
+    }
+}
 
 export function createContentBridgeService(): ContentBridgeService {
     return {
@@ -455,7 +579,7 @@ export function createContentBridgeService(): ContentBridgeService {
         async getTransfers() {
             if (sdkClient) {
                 for (const rec of transferRecords) {
-                    if (['creating', 'queued', 'transferring'].includes(rec.status)) {
+                    if (rec.status === 'creating' || rec.status === 'queued') {
                         try {
                             const res = await sdkClient.query('xmc.contentTransfer.getContentTransferStatus', {
                                 params: {
@@ -465,9 +589,23 @@ export function createContentBridgeService(): ContentBridgeService {
                             });
                             const statusData = unwrap<Record<string, unknown>>(res.data);
                             if (statusData?.State) {
-                                rec.status = mapState(statusData.State as string);
-                                rec.progress = progressFor(rec.status);
-                                rec.updatedAt = ts(new Date());
+                                const state = (statusData.State as string).toLowerCase();
+                                const chunksMeta = statusData.ChunkSetsMetadata as Array<{ ChunkSetId: string; ChunkCount: number; TotalItemCount: number }> | undefined;
+
+                                if (state === 'completed' && chunksMeta?.length) {
+                                    rec.chunkSetsMetadata = chunksMeta;
+                                    rec.status = 'transferring';
+                                    rec.progress = 20;
+                                    rec.updatedAt = ts(new Date());
+
+                                    if (!applyingTransfers.has(rec.id)) {
+                                        applyTransfer(rec);
+                                    }
+                                } else {
+                                    rec.status = mapState(state);
+                                    rec.progress = progressFor(rec.status);
+                                    rec.updatedAt = ts(new Date());
+                                }
                             }
                         } catch {
                             // transfer may not be ready yet
