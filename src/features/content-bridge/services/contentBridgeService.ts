@@ -254,7 +254,8 @@ async function applyTransfer(rec: TransferRecord) {
                         },
                     });
 
-                    const chunkData = (chunkRes as unknown as { data: Blob | File }).data;
+                    const rawData = unwrap(chunkRes.data);
+                    const chunkData = rawData instanceof Blob ? rawData : new Blob([rawData as BlobPart], { type: 'application/octet-stream' });
 
                     await sdkClient.mutate('xmc.contentTransfer.saveChunk', {
                         params: {
@@ -280,7 +281,7 @@ async function applyTransfer(rec: TransferRecord) {
                         query: { sitecoreContextId: rec.destinationEnvironmentId },
                     },
                 });
-                const completeData = unwrap<Record<string, unknown>>(completeRes);
+                const completeData = completeRes as Record<string, unknown> | undefined;
                 if (completeData && typeof completeData === 'object' && 'ContentTransferFileName' in completeData) {
                     rec.contentTransferFileName = (completeData.ContentTransferFileName as string) || undefined;
                 }
