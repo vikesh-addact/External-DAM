@@ -169,6 +169,25 @@ export function ContentBridgeApp() {
         };
     }, [service, sdkConnected, sourceId]);
 
+    useEffect(() => {
+        if (!sdkConnected || isLoadingData) return;
+
+        let cancelled = false;
+        const interval = setInterval(async () => {
+            try {
+                const updated = await service.getTransfers();
+                if (!cancelled) setTransfers(updated);
+            } catch {
+                // polling error — ignore
+            }
+        }, 5000);
+
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+    }, [service, sdkConnected, isLoadingData]);
+
     const selectedTransfer = transfers.find((transfer) => transfer.id === selectedTransferId) ?? transfers[0];
     const allItems = useMemo(() => flattenTree(tree), [tree]);
     const selectedItems = selectedItemIds.map((id) => findItem(tree, id)).filter(Boolean) as ContentTreeItem[];
@@ -200,15 +219,16 @@ export function ContentBridgeApp() {
     };
 
     const validateSelection = async () => {
-        if (selectedItemIds.length === 0 || !transferName.trim()) return;
         setIsValidating(true);
         setApiError(null);
+        const timer = setTimeout(() => setIsValidating(false), 10000);
         try {
             const results = await service.validateDependencies(selectedItemIds, tree);
             setDependencyResults(results);
         } catch (err) {
             setApiError(err instanceof Error ? err.message : 'Validation failed');
         } finally {
+            clearTimeout(timer);
             setIsValidating(false);
         }
     };

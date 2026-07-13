@@ -161,6 +161,17 @@
     gap: 8px;
 }
 
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.primaryButtonWide:disabled,
+.primaryButtonSmall:disabled,
+.linkButton:disabled,
+.iconButton:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
 .primaryButton,
 .primaryButtonWide,
 .primaryButtonSmall {
