@@ -343,34 +343,35 @@
 
 .tree {
     display: grid;
-    gap: 8px;
+    gap: 2px;
 }
 
 .treeNode {
     border: 1px solid var(--sitecore-border);
-    border-radius: 14px;
-    padding: 10px 12px;
+    border-radius: 8px;
+    padding: 4px 8px;
     background: #fafafa;
 }
 
 .treeRow {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 4px;
 }
 
 .treeRow label {
     display: flex;
+    flex-direction: row;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     flex: 1;
 }
 
 .treeChildren {
     margin-left: 24px;
     display: grid;
-    gap: 8px;
-    margin-top: 8px;
+    gap: 2px;
+    margin-top: 2px;
 }
 
 .expandButton {

@@ -145,7 +145,10 @@ export function ContentBridgeApp() {
 
                     if (effectiveSource) {
                         const contentTreeResult = await service.getContentTree(effectiveSource);
-                        if (!cancelled) setTree(contentTreeResult);
+                        if (!cancelled) {
+                            setTree(contentTreeResult);
+                            setExpandedIds(new Set(contentTreeResult.map((item) => item.id)));
+                        }
                     }
 
                     if (!cancelled) setIsLoadingData(false);
