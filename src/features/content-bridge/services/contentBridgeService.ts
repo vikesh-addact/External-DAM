@@ -246,6 +246,7 @@ async function applyTransfer(rec: TransferRecord) {
         console.log(`[ContentBridge] Starting apply for transfer ${rec.id}: ${rec.chunkSetsMetadata.length} chunk set(s), ${totalChunks} chunk(s)`);
 
         for (const chunkSet of rec.chunkSetsMetadata) {
+            console.log(`[ContentBridge] Processing chunk set ${chunkSet.ChunkSetId}: ${chunkSet.ChunkCount} chunk(s)`);
             for (let chunkIdx = 0; chunkIdx < chunkSet.ChunkCount; chunkIdx++) {
                 try {
                     const chunkRes = await sdkClient.query('xmc.contentTransfer.getChunk', {
@@ -255,8 +256,32 @@ async function applyTransfer(rec: TransferRecord) {
                         },
                     });
 
-                    const rawData = unwrap(chunkRes.data);
-                    const chunkData = rawData instanceof Blob ? rawData : new Blob([rawData as BlobPart], { type: 'application/octet-stream' });
+                    let chunkData: Blob;
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const d = chunkRes.data as any;
+                    console.log(`[ContentBridge] getChunk: data type=${typeof d}, constructor=${d?.constructor?.name}, isBlob=${d instanceof Blob}, isResponse=${d instanceof Response}`);
+
+                    if (d instanceof Response) {
+                        chunkData = await d.blob();
+                        console.log(`[ContentBridge] Extracted from Response: size=${chunkData.size}`);
+                    } else if (d instanceof Blob) {
+                        chunkData = d;
+                        console.log(`[ContentBridge] Direct Blob: size=${chunkData.size}`);
+                    } else if (d && typeof d === 'object' && 'data' in d && d.data instanceof Blob) {
+                        chunkData = d.data;
+                        console.log(`[ContentBridge] Nested Blob: size=${chunkData.size}`);
+                    } else {
+                        const buf = d instanceof ArrayBuffer ? d : (d?.data instanceof ArrayBuffer ? d.data : null);
+                        if (buf) {
+                            chunkData = new Blob([buf], { type: 'application/octet-stream' });
+                            console.log(`[ContentBridge] From ArrayBuffer: size=${chunkData.size}`);
+                        } else {
+                            console.error(`[ContentBridge] Could not extract binary data from:`, d);
+                            throw new Error('Failed to extract chunk binary data from getChunk response');
+                        }
+                    }
+
+                    console.log(`[ContentBridge] saveChunk body: size=${chunkData.size}, type=${chunkData.type}`);
 
                     await sdkClient.mutate('xmc.contentTransfer.saveChunk', {
                         params: {
@@ -265,6 +290,7 @@ async function applyTransfer(rec: TransferRecord) {
                             query: { sitecoreContextId: rec.destinationEnvironmentId },
                         },
                     });
+                    console.log(`[ContentBridge] saveChunk OK for chunk ${chunkIdx}`);
 
                     completedChunks++;
                     rec.progress = 20 + Math.round((completedChunks / totalChunks) * 50);
@@ -304,7 +330,7 @@ async function applyTransfer(rec: TransferRecord) {
                 params: {
                     query: {
                         databaseName: 'master',
-                        fileName: rec.contentTransferFileName,
+                        fileName: `blob://${rec.contentTransferFileName}`,
                         sitecoreContextId: rec.destinationEnvironmentId,
                     },
                 },
