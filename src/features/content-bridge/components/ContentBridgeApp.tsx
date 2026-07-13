@@ -24,7 +24,6 @@ import {
     Split,
 } from 'lucide-react';
 import { createContentBridgeService } from '../services/contentBridgeService';
-import type { AuthState } from '../services/contentBridgeService';
 import type { ContentEnvironment, ContentTreeItem, DependencyFinding, MergeStrategy, TransferRecord, TransferStatus } from '../types';
 import styles from './ContentBridgeApp.module.css';
 
@@ -102,42 +101,53 @@ export function ContentBridgeApp() {
     const [isCreating, setIsCreating] = useState(false);
     const [isLoadingData, setIsLoadingData] = useState(true);
     const [apiError, setApiError] = useState<string | null>(null);
-    const [authState, setAuthState] = useState<AuthState>(() => {
-        service.loadSavedCredentials();
-        return service.getAuthState();
-    });
+    const [sdkConnected, setSdkConnected] = useState(false);
 
     const apiStatus = service.getApiStatus();
 
     useEffect(() => {
         if (!error && isInitialized && client) {
+            service.setClient(client);
             client
                 .query('application.context')
-                .then((res) => setAppContext(res.data))
+                .then((res) => {
+                    service.setApplicationContext(res.data);
+                    setAppContext(res.data);
+                    setSdkConnected(true);
+                })
                 .catch((contextError) => console.error('Error retrieving application.context:', contextError));
         } else if (error) {
             console.error('Error initializing Marketplace client:', error);
         }
-    }, [client, error, isInitialized]);
-
-    // Load saved credentials from localStorage on mount
+    }, [client, error, isInitialized, service]);
 
     useEffect(() => {
+        if (!sdkConnected) return;
+
         let cancelled = false;
 
         const loadData = async () => {
             try {
-                const [envs, contentTreeResult, transfersResult] = await Promise.all([
+                const [envs, transfersResult] = await Promise.all([
                     service.getEnvironments(),
-                    service.getContentTree(sourceId),
                     service.getTransfers(),
                 ]);
 
                 if (!cancelled) {
                     setEnvironments(envs);
-                    setTree(contentTreeResult);
                     setTransfers(transfersResult);
-                    setIsLoadingData(false);
+
+                    const effectiveSource = sourceId || envs[0]?.id || '';
+                    if (!sourceId && effectiveSource) {
+                        setSourceId(effectiveSource);
+                    }
+
+                    if (effectiveSource) {
+                        const contentTreeResult = await service.getContentTree(effectiveSource);
+                        if (!cancelled) setTree(contentTreeResult);
+                    }
+
+                    if (!cancelled) setIsLoadingData(false);
                 }
             } catch (err) {
                 if (!cancelled) {
@@ -153,7 +163,7 @@ export function ContentBridgeApp() {
         return () => {
             cancelled = true;
         };
-    }, [service, sourceId]);
+    }, [service, sdkConnected, sourceId]);
 
     const selectedTransfer = transfers.find((transfer) => transfer.id === selectedTransferId) ?? transfers[0];
     const allItems = useMemo(() => flattenTree(tree), [tree]);
@@ -202,39 +212,6 @@ export function ContentBridgeApp() {
         setPage('monitor');
     };
 
-    const handleConnect = async (clientId: string, clientSecret: string) => {
-        try {
-            await service.connect(clientId, clientSecret);
-            setAuthState(service.getAuthState());
-            setIsLoadingData(true);
-            const [envs, contentTreeResult, transfersResult] = await Promise.all([
-                service.getEnvironments(),
-                service.getContentTree(sourceId),
-                service.getTransfers(),
-            ]);
-            setEnvironments(envs);
-            setTree(contentTreeResult);
-            setTransfers(transfersResult);
-            setIsLoadingData(false);
-        } catch (err) {
-            setAuthState(service.getAuthState());
-            throw err;
-        }
-    };
-
-    const handleDisconnect = () => {
-        service.disconnect();
-        setAuthState({ status: 'disconnected' });
-        setEnvironments([]);
-        setTree([]);
-        setTransfers([]);
-        setSelectedTransferId('');
-        setSourceId('');
-        setDestinationId('');
-        setSelectedItemIds([]);
-        setTransferName('');
-    };
-
     return (
         <main className={styles.app}>
             <aside className={styles.sidebar}>
@@ -269,20 +246,16 @@ export function ContentBridgeApp() {
                     <ShieldCheck size={18} aria-hidden />
                     <div>
                         <strong>
-                            {authState.status === 'connected'
-                                ? 'Live API Connected'
-                                : authState.status === 'connecting'
-                                    ? 'Connecting...'
-                                    : 'OAuth secured'}
+                            {sdkConnected ? 'Marketplace SDK Connected' : isLoading ? 'Initializing SDK...' : 'SDK Disconnected'}
                         </strong>
                         <span>
-                            {(() => {
-                                if (isLoading) return 'Initializing Marketplace SDK';
-                                if (authState.status === 'connected') return 'Authenticated as ' + authState.clientId;
-                                if (authState.status === 'connecting') return 'Exchanging credentials...';
-                                if (isInitialized) return 'Marketplace client connected';
-                                return 'Using local preview mode';
-                            })()}
+                            {isLoading
+                                ? 'Initializing Marketplace SDK'
+                                : sdkConnected
+                                    ? `Authenticated — ${(appContext as unknown as Record<string, unknown[]>)?.resourceAccess?.length ?? 0} tenant(s)`
+                                    : error
+                                        ? 'SDK initialization failed'
+                                        : 'Waiting for SDK'}
                         </span>
                     </div>
                 </div>
@@ -369,14 +342,7 @@ export function ContentBridgeApp() {
                 {page === 'details' && selectedTransfer && (
                     <DetailsPage allItems={allItems} environments={environments} retryTransfer={retryTransfer} transfer={selectedTransfer} />
                 )}
-                {page === 'settings' && (
-                    <SettingsPage
-                        apiStatus={apiStatus}
-                        authState={authState}
-                        onConnect={handleConnect}
-                        onDisconnect={handleDisconnect}
-                    />
-                )}
+                {page === 'settings' && <SettingsPage apiStatus={apiStatus} sdkConnected={sdkConnected} />}
             </section>
         </main>
     );
@@ -749,193 +715,40 @@ function DetailsPage({
 
 function SettingsPage({
     apiStatus,
-    authState,
-    onConnect,
-    onDisconnect,
+    sdkConnected,
 }: {
     apiStatus: { contentTransfer: boolean; itemTransfer: boolean; authenticated: boolean };
-    authState: AuthState;
-    onConnect: (clientId: string, clientSecret: string) => Promise<void>;
-    onDisconnect: () => void;
+    sdkConnected: boolean;
 }) {
-    const [clientId, setClientId] = useState(authState.clientId ?? '');
-    const [clientSecret, setClientSecret] = useState('');
-    const [showSecret, setShowSecret] = useState(false);
-    const [isConnecting, setIsConnecting] = useState(false);
-    const [connectError, setConnectError] = useState<string | null>(null);
-
-    const handleConnect = async () => {
-        if (!clientId.trim() || !clientSecret.trim()) {
-            setConnectError('Both client_id and client_secret are required');
-            return;
-        }
-
-        setIsConnecting(true);
-        setConnectError(null);
-
-        try {
-            await onConnect(clientId.trim(), clientSecret.trim());
-        } catch (err) {
-            setConnectError(err instanceof Error ? err.message : 'Connection failed');
-        } finally {
-            setIsConnecting(false);
-        }
-    };
-
     return (
         <div className={styles.settingsGrid}>
             <section className={styles.panel}>
                 <div className={styles.panelHeader}>
                     <div>
-                        <h2>Authentication</h2>
-                        <p>Enter your Sitecore Cloud service account credentials to connect to live APIs.</p>
+                        <h2>Marketplace SDK Connection</h2>
+                        <p>Authentication is handled automatically by the Sitecore Marketplace host.</p>
                     </div>
                     <KeyRound size={22} aria-hidden />
                 </div>
                 <div className={styles.formGrid}>
-                    <label>
-                        Client ID
-                        <input
-                            value={clientId}
-                            onChange={(e) => setClientId(e.target.value)}
-                            placeholder="your-service-account-client-id"
-                            disabled={authState.status === 'connected'}
-                        />
-                    </label>
-                    <label>
-                        Client Secret
-                        <div className={styles.secretInput}>
-                            <input
-                                type={showSecret ? 'text' : 'password'}
-                                value={clientSecret}
-                                onChange={(e) => setClientSecret(e.target.value)}
-                                placeholder="your-client-secret"
-                                disabled={authState.status === 'connected'}
-                            />
-                            <button
-                                className={styles.iconButton}
-                                onClick={() => setShowSecret(!showSecret)}
-                                type="button"
-                                title={showSecret ? 'Hide secret' : 'Show secret'}
-                            >
-                                {showSecret ? '??' : '??'}
-                            </button>
-                        </div>
-                    </label>
-                </div>
-                {connectError && (
-                    <div className={styles.alert}>
-                        <AlertTriangle size={16} aria-hidden />
-                        {connectError}
-                    </div>
-                )}
-                <div className={styles.authActions}>
-                    {authState.status === 'connected' ? (
-                        <>
-                            <div className={styles.authStatus}>
-                                <CheckCircle2 size={18} aria-hidden />
-                                <span>Connected as {authState.clientId}</span>
-                            </div>
-                            <button className={styles.secondaryButton} onClick={onDisconnect} type="button">
-                                Disconnect
-                            </button>
-                        </>
-                    ) : (
-                        <button
-                            className={styles.primaryButtonWide}
-                            onClick={handleConnect}
-                            disabled={isConnecting || !clientId.trim() || !clientSecret.trim()}
-                            type="button"
-                        >
-                            {isConnecting ? (
-                                <Loader2 className={styles.spin} size={18} aria-hidden />
-                            ) : (
-                                <ShieldCheck size={18} aria-hidden />
-                            )}
-                            {isConnecting ? 'Connecting...' : 'Connect to Sitecore'}
-                        </button>
-                    )}
-                </div>
-                <div className={styles.securityNote}>
-                    <AlertTriangle size={14} aria-hidden />
-                    <span>Credentials are stored in your browser&apos;s localStorage for session persistence. Do not use shared devices.</span>
-                </div>
-            </section>
-
-            <section className={styles.panel}>
-                <div className={styles.panelHeader}>
-                    <div>
-                        <h2>API integration</h2>
-                        <p>Endpoints for live Content Transfer and Item Transfer API calls.</p>
-                    </div>
-                    <Database size={22} aria-hidden />
-                </div>
-                <div className={styles.formGrid}>
-                    <label>
-                        Content Transfer API base URL
-                        <input
-                            defaultValue={process.env.NEXT_PUBLIC_SITECORE_CONTENT_TRANSFER_API_BASE_URL || 'https://api.sitecorecloud.io/content-transfer'}
-                            readOnly
-                        />
-                    </label>
-                    <label>
-                        Item Transfer API base URL
-                        <input
-                            defaultValue={process.env.NEXT_PUBLIC_SITECORE_ITEM_TRANSFER_API_BASE_URL || 'https://api.sitecorecloud.io/item-transfer'}
-                            readOnly
-                        />
-                    </label>
-                    <label>
-                        OAuth scope
-                        <input defaultValue={process.env.NEXT_PUBLIC_SITECORE_OAUTH_SCOPE || 'sitecore.content.transfer item.transfer'} readOnly />
-                    </label>
-                </div>
-                <div className={styles.formGrid}>
                     <div className={styles.dependencyItem}>
-                        <span className={apiStatus.authenticated ? styles.completed : styles.failed}>
-                            {apiStatus.authenticated ? 'Connected' : 'Not configured'}
+                        <span className={sdkConnected ? styles.completed : styles.failed}>
+                            {sdkConnected ? 'Connected' : 'Not connected'}
                         </span>
                         <div>
-                            <strong>OAuth Token</strong>
-                            <p>{apiStatus.authenticated ? 'Bearer token is active' : 'Enter credentials above to authenticate'}</p>
+                            <strong>Marketplace SDK</strong>
+                            <p>{sdkConnected ? 'SDK is authenticated via the host — API calls are routed through the PostMessage bridge' : 'Waiting for SDK initialization'}</p>
                         </div>
                     </div>
                     <div className={styles.dependencyItem}>
-                        <span className={apiStatus.contentTransfer ? styles.completed : styles.failed}>
-                            {apiStatus.contentTransfer ? 'Configured' : 'Not configured'}
+                        <span className={apiStatus.authenticated ? styles.completed : styles.failed}>
+                            {apiStatus.authenticated ? 'Ready' : 'Waiting'}
                         </span>
                         <div>
                             <strong>Content Transfer API</strong>
-                            <p>{apiStatus.contentTransfer ? 'Endpoint is set' : 'Set NEXT_PUBLIC_SITECORE_CONTENT_TRANSFER_API_BASE_URL in .env.local'}</p>
+                            <p>{apiStatus.authenticated ? 'Available via XMC SDK module' : 'Requires SDK connection'}</p>
                         </div>
                     </div>
-                    <div className={styles.dependencyItem}>
-                        <span className={apiStatus.itemTransfer ? styles.completed : styles.failed}>
-                            {apiStatus.itemTransfer ? 'Configured' : 'Not configured'}
-                        </span>
-                        <div>
-                            <strong>Item Transfer API</strong>
-                            <p>{apiStatus.itemTransfer ? 'Endpoint is set' : 'Set NEXT_PUBLIC_SITECORE_ITEM_TRANSFER_API_BASE_URL in .env.local'}</p>
-                        </div>
-                    </div>
-                </div>
-                <div className={styles.docsList}>
-                    <a
-                        className={styles.docLink}
-                        href="https://api-docs.sitecore.com/sai/content-transfer-api/section/migrating-content/create-the-transfer"
-                        rel="noreferrer"
-                        target="_blank"
-                    >
-                        Content Transfer API: create the transfer
-                    </a>
-                    <a
-                        className={styles.docLink}
-                        href="https://api-docs.sitecore.com/sai/item-transfer-api/section/migrating-content/start-consuming-the-blob"
-                        rel="noreferrer"
-                        target="_blank"
-                    >
-                        Item Transfer API: start consuming the blob
-                    </a>
                 </div>
             </section>
 

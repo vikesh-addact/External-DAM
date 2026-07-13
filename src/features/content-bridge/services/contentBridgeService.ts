@@ -1,18 +1,6 @@
-﻿import type { ContentEnvironment, ContentTreeItem, DependencyFinding, TransferDraft, TransferRecord } from '../types';
-
-const contentTransferApiBase = process.env.NEXT_PUBLIC_SITECORE_CONTENT_TRANSFER_API_BASE_URL ?? '';
-const itemTransferApiBase = process.env.NEXT_PUBLIC_SITECORE_ITEM_TRANSFER_API_BASE_URL ?? '';
-
-interface CachedToken {
-    accessToken: string;
-    expiresAt: number;
-}
-
-export interface AuthState {
-    status: 'disconnected' | 'connecting' | 'connected' | 'error';
-    error?: string;
-    clientId?: string;
-}
+﻿import type { ClientSDK } from '@sitecore-marketplace-sdk/client';
+import type { ApplicationContext } from '@sitecore-marketplace-sdk/client';
+import type { ContentEnvironment, ContentTreeItem, DependencyFinding, MergeStrategy, TransferDraft, TransferRecord, TransferStatus } from '../types';
 
 export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
@@ -23,321 +11,409 @@ export interface ContentBridgeService {
     retryTransfer(id: string): Promise<TransferRecord>;
     isLiveMode(): boolean;
     getApiStatus(): { contentTransfer: boolean; itemTransfer: boolean; authenticated: boolean };
-    getAuthState(): AuthState;
-    connect(clientId: string, clientSecret: string): Promise<void>;
-    disconnect(): void;
-    loadSavedCredentials(): boolean;
+    setClient(client: ClientSDK): void;
+    setApplicationContext(ctx: ApplicationContext | unknown): void;
 }
 
-const STORAGE_KEY_CLIENT_ID = 'contentbridge_client_id';
-const STORAGE_KEY_CLIENT_SECRET = 'contentbridge_client_secret';
+let sdkClient: ClientSDK | null = null;
+let appContextData: ApplicationContext | null = null;
+let transferRecords: TransferRecord[] = [];
+const itemIdToPath = new Map<string, string>();
 
-let cachedToken: CachedToken | null = null;
-let currentClientId: string | null = null;
-let currentClientSecret: string | null = null;
-let authState: AuthState = { status: 'disconnected' };
+const STRATEGY_MAP: Record<MergeStrategy, string> = {
+    overwrite: 'OverrideExistingItem',
+    merge: 'LatestWin',
+    skipExisting: 'KeepExistingItem',
+};
 
-
-
-function getTokenFromStorage(): { clientId: string; clientSecret: string } | null {
-    try {
-        const clientId = localStorage.getItem(STORAGE_KEY_CLIENT_ID);
-        const clientSecret = localStorage.getItem(STORAGE_KEY_CLIENT_SECRET);
-        if (clientId && clientSecret) {
-            return { clientId, clientSecret };
-        }
-    } catch {
-        // localStorage not available
-    }
-    return null;
+function uid(prefix: string): string {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function saveCredentialsToStorage(clientId: string, clientSecret: string): void {
-    try {
-        localStorage.setItem(STORAGE_KEY_CLIENT_ID, clientId);
-        localStorage.setItem(STORAGE_KEY_CLIENT_SECRET, clientSecret);
-    } catch {
-        // localStorage not available
-    }
+function ts(date: Date): string {
+    return date.toISOString().slice(0, 16).replace('T', ' ');
 }
 
-function clearCredentialsFromStorage(): void {
-    try {
-        localStorage.removeItem(STORAGE_KEY_CLIENT_ID);
-        localStorage.removeItem(STORAGE_KEY_CLIENT_SECRET);
-    } catch {
-        // localStorage not available
-    }
+function getResources(): unknown[] {
+    if (!appContextData) return [];
+    const data = appContextData as Record<string, unknown>;
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.resourceAccess)) return data.resourceAccess as unknown[];
+    return [];
 }
 
-async function fetchAccessToken(clientId: string, clientSecret: string): Promise<string> {
-    const response = await fetch('/api/auth/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, clientSecret }),
-    });
-
-    if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.detail || data.error || `Authentication failed (${response.status})`);
+function environmentsFromResources(resources: unknown[]): ContentEnvironment[] {
+    const envs: ContentEnvironment[] = [];
+    for (const r of resources) {
+        const res = r as Record<string, unknown>;
+        const ctx = res.context as Record<string, string> | undefined;
+        if (!ctx?.preview || !ctx?.live) continue;
+        const label = (res.tenantDisplayName || res.tenantName || 'Sitecore') as string;
+        envs.push(
+            {
+                id: ctx.preview,
+                name: `${label} — Preview`,
+                project: label,
+                region: 'Global',
+                type: 'Development',
+                status: 'Connected',
+            },
+            {
+                id: ctx.live,
+                name: `${label} — Live`,
+                project: label,
+                region: 'Global',
+                type: 'Production',
+                status: 'Connected',
+            }
+        );
     }
-
-    const data = await response.json();
-    cachedToken = {
-        accessToken: data.access_token,
-        expiresAt: Date.now() + (data.expires_in - 60) * 1000, // Refresh 60s before expiry
-    };
-    return data.access_token;
+    return envs;
 }
 
-async function getValidToken(): Promise<string | null> {
-    if (cachedToken && Date.now() < cachedToken.expiresAt) {
-        return cachedToken.accessToken;
-    }
+function pageToTreeItem(page: Record<string, unknown>): ContentTreeItem {
+    const id = (page.id ?? '') as string;
+    const path = (page.path ?? '') as string;
+    const name = (page.displayName || page.name || '') as string;
+    const templateId = (page.templateId ?? '') as string;
+    if (id && path) itemIdToPath.set(id, path);
 
-    if (currentClientId && currentClientSecret) {
-        try {
-            return await fetchAccessToken(currentClientId, currentClientSecret);
-        } catch {
-            authState = { status: 'error', error: 'Token refresh failed', clientId: currentClientId ?? undefined };
-            return null;
-        }
-    }
+    const rawChildren = page.children as Record<string, unknown>[] | null | undefined;
+    const children = Array.isArray(rawChildren) ? rawChildren.map(pageToTreeItem) : [];
 
-    return null;
+    return { id, name, path, template: templateId, updatedAt: '', dependencies: [], children };
 }
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T | null> {
-    try {
-        const token = await getValidToken();
-        const headers: Record<string, string> = {
-            Accept: 'application/json',
-            ...(init?.headers as Record<string, string> ?? {}),
-        };
+function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
+    const id = (node.id ?? '') as string;
+    const path = (node.path ?? '') as string;
+    const name = (node.name ?? '') as string;
+    const tmpl = (node.template as Record<string, unknown> | undefined)?.name as string ?? '';
+    if (id && path) itemIdToPath.set(id, path);
 
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+    const rawChildren = (node.children as Record<string, unknown> | undefined)?.results as Record<string, unknown>[] | undefined;
+    const children = Array.isArray(rawChildren) ? rawChildren.map(gqlNodeToTreeItem) : [];
 
-        const response = await fetch(url, {
-            ...init,
-            headers,
-        });
+    return { id, name, path, template: tmpl, updatedAt: '', dependencies: [], children };
+}
 
-        if (response.status === 401 && currentClientId && currentClientSecret) {
-            cachedToken = null;
-            const retryToken = await getValidToken();
-            if (retryToken) {
-                headers['Authorization'] = `Bearer ${retryToken}`;
-                const retryResponse = await fetch(url, { ...init, headers });
-                if (!retryResponse.ok) return null;
-                return (await retryResponse.json()) as T;
+function mapState(s: string): TransferStatus {
+    const lower = (s ?? '').toLowerCase();
+    if (lower === 'completed') return 'completed';
+    if (lower === 'failed' || lower === 'error') return 'failed';
+    if (lower === 'transferring' || lower === 'inprogress' || lower === 'in_progress') return 'transferring';
+    if (lower === 'queued' || lower === 'pending') return 'queued';
+    return 'creating';
+}
+
+function progressFor(status: TransferStatus): number {
+    if (status === 'completed') return 100;
+    if (status === 'failed') return 0;
+    if (status === 'transferring') return 50;
+    if (status === 'queued') return 10;
+    return 5;
+}
+
+const CONTENT_TREE_GQL = `query {
+    item(path: "/sitecore/content") {
+        id name path
+        template { name }
+        children {
+            results {
+                id name path
+                template { name }
+                hasChildren
+                children {
+                    results {
+                        id name path
+                        template { name }
+                        hasChildren
+                        children {
+                            results {
+                                id name path
+                                template { name }
+                                hasChildren
+                                children {
+                                    results {
+                                        id name path
+                                        template { name }
+                                        hasChildren
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-
-        if (!response.ok) {
-            console.warn(`API request failed: ${response.status} ${response.statusText} for ${url}`);
-            return null;
+    }
+    mediaLibrary: item(path: "/sitecore/media library") {
+        id name path
+        template { name }
+        children {
+            results {
+                id name path
+                template { name }
+                hasChildren
+                children {
+                    results {
+                        id name path
+                        template { name }
+                        hasChildren
+                    }
+                }
+            }
         }
-
-        return (await response.json()) as T;
-    } catch (error) {
-        console.warn(`API request error for ${url}:`, error);
-        return null;
     }
-}
+}`;
 
-async function getLiveEnvironments(): Promise<ContentEnvironment[] | null> {
-    if (!contentTransferApiBase || authState.status !== 'connected') {
-        return null;
-    }
+export function createContentBridgeService(): ContentBridgeService {
+    return {
+        setClient(client) {
+            sdkClient = client;
+        },
 
-    const payload = await requestJson<ContentEnvironment[] | { environments: ContentEnvironment[] }>(
-        `${contentTransferApiBase}/environments`
-    );
+        setApplicationContext(ctx) {
+            appContextData = ctx as ApplicationContext;
+        },
 
-    if (!payload) return null;
+        isLiveMode() {
+            return sdkClient !== null;
+        },
 
-    if (Array.isArray(payload)) return payload;
-    if ('environments' in payload && Array.isArray(payload.environments)) return payload.environments;
+        getApiStatus() {
+            return {
+                contentTransfer: true,
+                itemTransfer: true,
+                authenticated: sdkClient !== null,
+            };
+        },
 
-    return null;
-}
+        async getEnvironments() {
+            const resources = getResources();
+            const envs = environmentsFromResources(resources);
+            if (envs.length === 0) {
+                throw new Error('No Sitecore environments found. Ensure the Marketplace SDK is connected.');
+            }
+            return envs;
+        },
 
-async function getLiveContentTree(environmentId: string): Promise<ContentTreeItem[] | null> {
-    if (!contentTransferApiBase || authState.status !== 'connected') {
-        return null;
-    }
+        async getContentTree(environmentId) {
+            if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
-    const payload = await requestJson<ContentTreeItem[] | { items: ContentTreeItem[] }>(
-        `${contentTransferApiBase}/content-tree?environmentId=${encodeURIComponent(environmentId)}`
-    );
+            const sitesResult = await sdkClient.query('xmc.xmapp.listSites', {
+                params: { query: { sitecoreContextId: environmentId } },
+            });
+            const sites = (sitesResult.data ?? []) as Array<Record<string, unknown>>;
+            const tree: ContentTreeItem[] = [];
 
-    if (!payload) return null;
+            for (const site of sites) {
+                const siteId = site.id as string;
+                if (!siteId) continue;
+                try {
+                    const hier = await sdkClient.query('xmc.xmapp.retrieveSiteHierarchy', {
+                        params: {
+                            path: { siteId },
+                            query: { sitecoreContextId: environmentId },
+                        },
+                    });
+                    const data = hier.data as Record<string, unknown> | undefined;
+                    if (data?.page) {
+                        tree.push(pageToTreeItem(data.page as Record<string, unknown>));
+                    }
+                } catch (err) {
+                    console.warn(`Hierarchy fetch failed for site ${siteId}:`, err);
+                }
+            }
 
-    if (Array.isArray(payload)) return payload;
-    if ('items' in payload && Array.isArray(payload.items)) return payload.items;
+            if (tree.length === 0) {
+                try {
+                    const gql = await sdkClient.mutate('xmc.authoring.graphql', {
+                        params: {
+                            body: { query: CONTENT_TREE_GQL },
+                            query: { sitecoreContextId: environmentId },
+                        },
+                    });
+                    const data = (gql as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
+                    const root = data?.item as Record<string, unknown> | undefined;
+                    if (root?.children) {
+                        const results = (root.children as Record<string, unknown>).results as Record<string, unknown>[];
+                        tree.push(...results.map(gqlNodeToTreeItem));
+                    }
+                    const ml = data?.mediaLibrary as Record<string, unknown> | undefined;
+                    if (ml?.children) {
+                        const results = (ml.children as Record<string, unknown>).results as Record<string, unknown>[];
+                        const mlTree: ContentTreeItem = {
+                            id: (ml.id ?? 'media-library') as string,
+                            name: (ml.name ?? 'Media Library') as string,
+                            path: (ml.path ?? '/sitecore/media library') as string,
+                            template: 'Media Folder',
+                            updatedAt: '',
+                            dependencies: [],
+                            children: results.map(gqlNodeToTreeItem),
+                        };
+                        tree.push(mlTree);
+                    }
+                } catch (err) {
+                    console.warn('GraphQL content tree fallback failed:', err);
+                }
+            }
 
-    return null;
-}
+            return tree;
+        },
 
-async function getLiveTransfers(): Promise<TransferRecord[] | null> {
-    if (!contentTransferApiBase || authState.status !== 'connected') {
-        return null;
-    }
+        async validateDependencies(itemIds) {
+            if (itemIds.length === 0 || !sdkClient) return [];
 
-    const payload = await requestJson<TransferRecord[] | { transfers: TransferRecord[] }>(
-        `${contentTransferApiBase}/transfers`
-    );
+            const findings: DependencyFinding[] = [];
+            try {
+                const result = await sdkClient.mutate('xmc.authoring.graphql', {
+                    params: {
+                        body: {
+                            query: `query ($ids: [String!]!) {
+                                items(ids: $ids) {
+                                    id name path
+                                    hasChildren
+                                }
+                            }`,
+                            variables: { ids: itemIds },
+                        },
+                    },
+                });
+                const items = ((result as Record<string, unknown>)?.data as Record<string, unknown>)?.items as Array<Record<string, unknown>> | undefined;
+                if (!Array.isArray(items)) return [];
 
-    if (!payload) return null;
+                const selectedSet = new Set(itemIds);
+                for (const item of items) {
+                    const id = item.id as string;
+                    const name = item.name as string;
+                    if ((item.hasChildren as boolean) && !selectedSet.has(id)) {
+                        findings.push({
+                            id: uid('dep'),
+                            itemName: name,
+                            dependency: 'Child items',
+                            severity: 'warning',
+                            message: `"${name}" has children that are not included in the selection.`,
+                        });
+                    }
+                }
+            } catch (err) {
+                console.warn('Dependency validation via GraphQL failed:', err);
+            }
 
-    if (Array.isArray(payload)) return payload;
-    if ('transfers' in payload && Array.isArray(payload.transfers)) return payload.transfers;
+            return findings;
+        },
 
-    return null;
-}
+        async createContentTransfer(draft) {
+            if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
-async function createLiveContentTransfer(draft: TransferDraft): Promise<TransferRecord | null> {
-    if (!contentTransferApiBase || authState.status !== 'connected') {
-        return null;
-    }
+            const transferId = uid('tr');
+            const now = ts(new Date());
 
-    const payload = await requestJson<TransferRecord>(
-        `${contentTransferApiBase}/transfers`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+            const dataTrees = draft.selectedItemIds.map((id) => {
+                const itemPath = itemIdToPath.get(id) ?? id;
+                return {
+                    itemPath,
+                    scope: 'ItemAndDescendants' as const,
+                    mergeStrategy: (STRATEGY_MAP[draft.strategy] ?? 'OverrideExistingItem') as
+                        | 'OverrideExistingItem'
+                        | 'KeepExistingItem'
+                        | 'LatestWin'
+                        | 'OverrideExistingTree',
+                };
+            });
+
+            try {
+                await sdkClient.mutate('xmc.contentTransfer.createContentTransfer', {
+                    params: {
+                        body: {
+                            transferId,
+                            configuration: { dataTrees },
+                        },
+                        query: { sitecoreContextId: draft.sourceEnvironmentId },
+                    },
+                });
+            } catch (err) {
+                throw new Error(`Content Transfer creation failed: ${err instanceof Error ? err.message : String(err)}`);
+            }
+
+            const record: TransferRecord = {
+                id: transferId,
                 name: draft.name,
                 sourceEnvironmentId: draft.sourceEnvironmentId,
                 destinationEnvironmentId: draft.destinationEnvironmentId,
                 selectedItemIds: draft.selectedItemIds,
                 strategy: draft.strategy,
-            }),
-        }
-    );
-
-    return payload;
-}
-
-async function retryLiveTransfer(id: string): Promise<TransferRecord | null> {
-    if (!contentTransferApiBase || authState.status !== 'connected') {
-        return null;
-    }
-
-    const payload = await requestJson<TransferRecord>(
-        `${contentTransferApiBase}/transfers/${encodeURIComponent(id)}/retry`,
-        { method: 'POST' }
-    );
-
-    return payload;
-}
-
-export function createContentBridgeService(): ContentBridgeService {
-    return {
-        isLiveMode() {
-            return authState.status === 'connected';
-        },
-
-        getApiStatus() {
-            return {
-                contentTransfer: Boolean(contentTransferApiBase),
-                itemTransfer: Boolean(itemTransferApiBase),
-                authenticated: authState.status === 'connected',
+                status: 'creating',
+                progress: 5,
+                createdBy: 'Current user',
+                createdAt: now,
+                updatedAt: now,
+                auditLog: [
+                    {
+                        id: uid('audit'),
+                        timestamp: now,
+                        actor: 'Current user',
+                        action: 'Created transfer request',
+                        detail: `Content Transfer ${transferId} created via Marketplace SDK.`,
+                    },
+                ],
             };
-        },
 
-        getAuthState() {
-            return authState;
-        },
-
-        async connect(clientId, clientSecret) {
-            authState = { status: 'connecting', clientId };
-
-            try {
-                await fetchAccessToken(clientId, clientSecret);
-                currentClientId = clientId;
-                currentClientSecret = clientSecret;
-                saveCredentialsToStorage(clientId, clientSecret);
-                authState = { status: 'connected', clientId };
-            } catch (err) {
-                authState = {
-                    status: 'error',
-                    error: err instanceof Error ? err.message : 'Connection failed',
-                    clientId,
-                };
-                throw err;
-            }
-        },
-
-        disconnect() {
-            cachedToken = null;
-            currentClientId = null;
-            currentClientSecret = null;
-            authState = { status: 'disconnected' };
-            clearCredentialsFromStorage();
-        },
-
-        loadSavedCredentials() {
-            const saved = getTokenFromStorage();
-            if (saved) {
-                currentClientId = saved.clientId;
-                currentClientSecret = saved.clientSecret;
-                authState = { status: 'connected', clientId: saved.clientId };
-                return true;
-            }
-            return false;
-        },
-
-        async getEnvironments() {
-            const live = await getLiveEnvironments();
-            if (!live) throw new Error('Failed to load environments from Sitecore API. Check your connection and try again.');
-            return live;
-        },
-
-        async getContentTree(environmentId) {
-            const live = await getLiveContentTree(environmentId);
-            if (!live) throw new Error('Failed to load content tree from Sitecore API. Check your connection and try again.');
-            return live;
-        },
-
-        async validateDependencies(itemIds) {
-            if (itemIds.length === 0) return [];
-
-            const payload = await requestJson<DependencyFinding[] | { findings: DependencyFinding[] }>(
-                `${contentTransferApiBase}/validate-dependencies`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ itemIds }),
-                }
-            );
-
-            if (!payload) throw new Error('Failed to validate dependencies. The Content Transfer API may not support this endpoint yet.');
-
-            if (Array.isArray(payload)) return payload;
-            if ('findings' in payload && Array.isArray(payload.findings)) return payload.findings;
-
-            throw new Error('Unexpected response format from dependency validation API.');
-        },
-
-        async createContentTransfer(draft) {
-            const live = await createLiveContentTransfer(draft);
-            if (!live) throw new Error('Failed to create content transfer. Check your connection and try again.');
-            return live;
+            transferRecords = [record, ...transferRecords];
+            return record;
         },
 
         async getTransfers() {
-            const live = await getLiveTransfers();
-            if (!live) throw new Error('Failed to load transfers from Sitecore API. Check your connection and try again.');
-            return live;
+            if (sdkClient) {
+                for (const rec of transferRecords) {
+                    if (['creating', 'queued', 'transferring'].includes(rec.status)) {
+                        try {
+                            const res = await sdkClient.query('xmc.contentTransfer.getContentTransferStatus', {
+                                params: {
+                                    path: { transferId: rec.id },
+                                    query: { sitecoreContextId: rec.sourceEnvironmentId },
+                                },
+                            });
+                            const data = res.data as Record<string, unknown> | undefined;
+                            if (data?.State) {
+                                rec.status = mapState(data.State as string);
+                                rec.progress = progressFor(rec.status);
+                                rec.updatedAt = ts(new Date());
+                            }
+                        } catch {
+                            // transfer may not be ready yet
+                        }
+                    }
+                }
+            }
+            return [...transferRecords];
         },
 
         async retryTransfer(id) {
-            const live = await retryLiveTransfer(id);
-            if (!live) throw new Error('Failed to retry transfer. Check your connection and try again.');
-            return live;
+            const existing = transferRecords.find((r) => r.id === id);
+            if (!existing) throw new Error(`Transfer ${id} not found.`);
+
+            if (sdkClient) {
+                try {
+                    await sdkClient.mutate('xmc.contentTransfer.deleteContentTransfer', {
+                        params: {
+                            path: { transferId: id },
+                            query: { sitecoreContextId: existing.sourceEnvironmentId },
+                        },
+                    });
+                } catch {
+                    // best-effort cleanup
+                }
+            }
+
+            return createContentBridgeService().createContentTransfer({
+                name: existing.name,
+                sourceEnvironmentId: existing.sourceEnvironmentId,
+                destinationEnvironmentId: existing.destinationEnvironmentId,
+                selectedItemIds: existing.selectedItemIds,
+                strategy: existing.strategy,
+            });
         },
     };
 }
