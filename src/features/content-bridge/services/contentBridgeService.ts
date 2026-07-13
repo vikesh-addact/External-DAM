@@ -269,29 +269,43 @@ async function applyTransfer(rec: TransferRecord) {
                     let chunkData: Blob;
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const d = chunkRes.data as any;
-                    console.log(`[ContentBridge] getChunk: data type=${typeof d}, constructor=${d?.constructor?.name}, isBlob=${d instanceof Blob}, isResponse=${d instanceof Response}`);
+                    console.log(`[ContentBridge] getChunk raw: keys=${d ? Object.keys(d).join(',') : 'null'}, type=${typeof d}`);
 
-                    if (d instanceof Response) {
-                        chunkData = await d.blob();
-                        console.log(`[ContentBridge] Extracted from Response: size=${chunkData.size}`);
-                    } else if (d instanceof Blob) {
+                    if (d instanceof Blob) {
                         chunkData = d;
-                        console.log(`[ContentBridge] Direct Blob: size=${chunkData.size}`);
-                    } else if (d && typeof d === 'object' && 'data' in d && d.data instanceof Blob) {
+                    } else if (d instanceof Response) {
+                        chunkData = await d.blob();
+                    } else if (d instanceof ArrayBuffer) {
+                        chunkData = new Blob([d], { type: 'application/octet-stream' });
+                    } else if (d?.data instanceof Blob) {
                         chunkData = d.data;
-                        console.log(`[ContentBridge] Nested Blob: size=${chunkData.size}`);
+                    } else if (d?.data instanceof ArrayBuffer) {
+                        chunkData = new Blob([d.data], { type: 'application/octet-stream' });
+                    } else if (d?.data instanceof Response) {
+                        chunkData = await d.data.blob();
+                    } else if (d?.body instanceof ArrayBuffer) {
+                        chunkData = new Blob([d.body], { type: 'application/octet-stream' });
+                    } else if (d?.body instanceof Blob) {
+                        chunkData = d.body;
+                    } else if (d?.body?.arrayBuffer) {
+                        chunkData = await d.body.blob();
+                    } else if (d?.buffer instanceof ArrayBuffer) {
+                        chunkData = new Blob([d.buffer], { type: 'application/octet-stream' });
                     } else {
-                        const buf = d instanceof ArrayBuffer ? d : (d?.data instanceof ArrayBuffer ? d.data : null);
-                        if (buf) {
-                            chunkData = new Blob([buf], { type: 'application/octet-stream' });
-                            console.log(`[ContentBridge] From ArrayBuffer: size=${chunkData.size}`);
-                        } else {
-                            console.error(`[ContentBridge] Could not extract binary data from:`, d);
-                            throw new Error('Failed to extract chunk binary data from getChunk response');
-                        }
+                        console.error(`[ContentBridge] Could not extract binary data. Full object:`, JSON.stringify(d, (key, value) => {
+                            if (value instanceof ArrayBuffer) return `ArrayBuffer(${value.byteLength})`;
+                            if (value instanceof Blob) return `Blob(${value.size})`;
+                            if (value instanceof Response) return `Response(${value.status})`;
+                            return value;
+                        }));
+                        throw new Error('Failed to extract chunk binary data from getChunk response');
                     }
 
                     console.log(`[ContentBridge] saveChunk body: size=${chunkData.size}, type=${chunkData.type}`);
+
+                    if (chunkData.size === 0) {
+                        throw new Error(`Extracted chunk data is empty (0 bytes). Raw response keys: ${Object.keys(d || {}).join(',')}`);
+                    }
 
                     await sdkClient.mutate('xmc.contentTransfer.saveChunk', {
                         params: {
@@ -373,8 +387,9 @@ async function applyTransfer(rec: TransferRecord) {
                     }
 
                     const blobData = unwrap<Record<string, unknown>>(blobRes.data);
-                    const blobStatus = blobData?.status as string | undefined;
-                    console.log(`[ContentBridge] getBlobState attempt ${attempt + 1}: status=${blobStatus}`);
+                    const blobStatus = (blobData?.BlobState ?? blobData?.status) as string | undefined;
+                    const blobError = (blobData?.Error ?? blobData?.details) as string | undefined;
+                    console.log(`[ContentBridge] getBlobState attempt ${attempt + 1}: BlobState=${blobStatus}`);
 
                     if (blobStatus === 'OK' || blobStatus === 'Completed') {
                         rec.status = 'completed';
@@ -383,8 +398,12 @@ async function applyTransfer(rec: TransferRecord) {
                         applyingTransfers.delete(rec.id);
                         return;
                     }
+                    if (blobStatus === 'NotFound') {
+                        console.log(`[ContentBridge] Blob not yet available, retrying...`);
+                        continue;
+                    }
                     if (blobStatus === 'Error') {
-                        throw new Error(`Blob consumption failed: ${JSON.stringify(blobData?.details ?? '')}`);
+                        throw new Error(`Blob consumption failed: ${blobError || JSON.stringify(blobData)}`);
                     }
                 } catch (err) {
                     if ((err as Error).message.startsWith('Blob consumption')) throw err;
