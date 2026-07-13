@@ -34,6 +34,22 @@ function ts(date: Date): string {
     return date.toISOString().slice(0, 16).replace('T', ' ');
 }
 
+function unwrap<T>(raw: unknown): T | undefined {
+    if (raw == null) return undefined;
+    if (typeof raw !== 'object') return undefined;
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj)) return obj as unknown as T;
+    if ('data' in obj && obj.data != null && typeof obj.data === 'object') {
+        if (Array.isArray(obj.data)) return obj.data as unknown as T;
+        return obj.data as T;
+    }
+    return undefined;
+}
+
+function unwrapArray<T>(raw: unknown): T[] {
+    return unwrap<T[]>(raw) ?? [];
+}
+
 function getResources(): unknown[] {
     if (!appContextData) return [];
     const data = appContextData as Record<string, unknown>;
@@ -78,8 +94,10 @@ function pageToTreeItem(page: Record<string, unknown>): ContentTreeItem {
     const templateId = (page.templateId ?? '') as string;
     if (id && path) itemIdToPath.set(id, path);
 
-    const rawChildren = page.children as Record<string, unknown>[] | null | undefined;
-    const children = Array.isArray(rawChildren) ? rawChildren.map(pageToTreeItem) : [];
+    const rawChildren = page.children;
+    const children = Array.isArray(rawChildren)
+        ? (rawChildren as Record<string, unknown>[]).map(pageToTreeItem)
+        : [];
 
     return { id, name, path, template: templateId, updatedAt: '', dependencies: [], children };
 }
@@ -91,8 +109,11 @@ function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
     const tmpl = (node.template as Record<string, unknown> | undefined)?.name as string ?? '';
     if (id && path) itemIdToPath.set(id, path);
 
-    const rawChildren = (node.children as Record<string, unknown> | undefined)?.results as Record<string, unknown>[] | undefined;
-    const children = Array.isArray(rawChildren) ? rawChildren.map(gqlNodeToTreeItem) : [];
+    const childContainer = node.children as Record<string, unknown> | undefined;
+    const rawResults = childContainer?.results;
+    const children = Array.isArray(rawResults)
+        ? (rawResults as Record<string, unknown>[]).map(gqlNodeToTreeItem)
+        : [];
 
     return { id, name, path, template: tmpl, updatedAt: '', dependencies: [], children };
 }
@@ -201,29 +222,35 @@ export function createContentBridgeService(): ContentBridgeService {
         async getContentTree(environmentId) {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
-            const sitesResult = await sdkClient.query('xmc.xmapp.listSites', {
-                params: { query: { sitecoreContextId: environmentId } },
-            });
-            const sites = (sitesResult.data ?? []) as Array<Record<string, unknown>>;
             const tree: ContentTreeItem[] = [];
 
-            for (const site of sites) {
-                const siteId = site.id as string;
-                if (!siteId) continue;
-                try {
-                    const hier = await sdkClient.query('xmc.xmapp.retrieveSiteHierarchy', {
-                        params: {
-                            path: { siteId },
-                            query: { sitecoreContextId: environmentId },
-                        },
-                    });
-                    const data = hier.data as Record<string, unknown> | undefined;
-                    if (data?.page) {
-                        tree.push(pageToTreeItem(data.page as Record<string, unknown>));
+            try {
+                const sitesResult = await sdkClient.query('xmc.xmapp.listSites', {
+                    params: { query: { sitecoreContextId: environmentId } },
+                });
+                const sites = unwrapArray<Record<string, unknown>>(sitesResult.data);
+                console.log('[ContentBridge] listSites result:', sites);
+
+                for (const site of sites) {
+                    const siteId = site.id as string;
+                    if (!siteId) continue;
+                    try {
+                        const hier = await sdkClient.query('xmc.xmapp.retrieveSiteHierarchy', {
+                            params: {
+                                path: { siteId },
+                                query: { sitecoreContextId: environmentId },
+                            },
+                        });
+                        const hierData = unwrap<Record<string, unknown>>(hier.data);
+                        if (hierData?.page) {
+                            tree.push(pageToTreeItem(hierData.page as Record<string, unknown>));
+                        }
+                    } catch (err) {
+                        console.warn(`[ContentBridge] Hierarchy fetch failed for site ${siteId}:`, err);
                     }
-                } catch (err) {
-                    console.warn(`Hierarchy fetch failed for site ${siteId}:`, err);
                 }
+            } catch (err) {
+                console.warn('[ContentBridge] listSites failed, trying GraphQL fallback:', err);
             }
 
             if (tree.length === 0) {
@@ -234,31 +261,37 @@ export function createContentBridgeService(): ContentBridgeService {
                             query: { sitecoreContextId: environmentId },
                         },
                     });
-                    const data = (gql as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
-                    const root = data?.item as Record<string, unknown> | undefined;
+                    console.log('[ContentBridge] GraphQL content tree result:', gql);
+                    const gqlPayload = unwrap<Record<string, unknown>>(gql);
+                    const root = gqlPayload?.item as Record<string, unknown> | undefined;
                     if (root?.children) {
                         const results = (root.children as Record<string, unknown>).results as Record<string, unknown>[];
-                        tree.push(...results.map(gqlNodeToTreeItem));
+                        if (Array.isArray(results)) {
+                            tree.push(...results.map(gqlNodeToTreeItem));
+                        }
                     }
-                    const ml = data?.mediaLibrary as Record<string, unknown> | undefined;
+                    const ml = gqlPayload?.mediaLibrary as Record<string, unknown> | undefined;
                     if (ml?.children) {
                         const results = (ml.children as Record<string, unknown>).results as Record<string, unknown>[];
-                        const mlTree: ContentTreeItem = {
-                            id: (ml.id ?? 'media-library') as string,
-                            name: (ml.name ?? 'Media Library') as string,
-                            path: (ml.path ?? '/sitecore/media library') as string,
-                            template: 'Media Folder',
-                            updatedAt: '',
-                            dependencies: [],
-                            children: results.map(gqlNodeToTreeItem),
-                        };
-                        tree.push(mlTree);
+                        if (Array.isArray(results)) {
+                            const mlTree: ContentTreeItem = {
+                                id: (ml.id ?? 'media-library') as string,
+                                name: (ml.name ?? 'Media Library') as string,
+                                path: (ml.path ?? '/sitecore/media library') as string,
+                                template: 'Media Folder',
+                                updatedAt: '',
+                                dependencies: [],
+                                children: results.map(gqlNodeToTreeItem),
+                            };
+                            tree.push(mlTree);
+                        }
                     }
                 } catch (err) {
-                    console.warn('GraphQL content tree fallback failed:', err);
+                    console.error('[ContentBridge] GraphQL content tree fallback failed:', err);
                 }
             }
 
+            console.log('[ContentBridge] Final content tree:', tree);
             return tree;
         },
 
@@ -280,7 +313,8 @@ export function createContentBridgeService(): ContentBridgeService {
                         },
                     },
                 });
-                const items = ((result as Record<string, unknown>)?.data as Record<string, unknown>)?.items as Array<Record<string, unknown>> | undefined;
+                const payload = unwrap<Record<string, unknown>>(result);
+                const items = payload?.items as Array<Record<string, unknown>> | undefined;
                 if (!Array.isArray(items)) return [];
 
                 const selectedSet = new Set(itemIds);
@@ -298,7 +332,7 @@ export function createContentBridgeService(): ContentBridgeService {
                     }
                 }
             } catch (err) {
-                console.warn('Dependency validation via GraphQL failed:', err);
+                console.warn('[ContentBridge] Dependency validation via GraphQL failed:', err);
             }
 
             return findings;
@@ -375,9 +409,9 @@ export function createContentBridgeService(): ContentBridgeService {
                                     query: { sitecoreContextId: rec.sourceEnvironmentId },
                                 },
                             });
-                            const data = res.data as Record<string, unknown> | undefined;
-                            if (data?.State) {
-                                rec.status = mapState(data.State as string);
+                            const statusData = unwrap<Record<string, unknown>>(res.data);
+                            if (statusData?.State) {
+                                rec.status = mapState(statusData.State as string);
                                 rec.progress = progressFor(rec.status);
                                 rec.updatedAt = ts(new Date());
                             }
@@ -407,7 +441,10 @@ export function createContentBridgeService(): ContentBridgeService {
                 }
             }
 
-            return createContentBridgeService().createContentTransfer({
+            const service = createContentBridgeService();
+            if (sdkClient) service.setClient(sdkClient);
+            if (appContextData) service.setApplicationContext(appContextData);
+            return service.createContentTransfer({
                 name: existing.name,
                 sourceEnvironmentId: existing.sourceEnvironmentId,
                 destinationEnvironmentId: existing.destinationEnvironmentId,

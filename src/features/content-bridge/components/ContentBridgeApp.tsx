@@ -192,17 +192,23 @@ export function ContentBridgeApp() {
 
     const createTransfer = async () => {
         setIsCreating(true);
-        const created = await service.createContentTransfer({
-            name: transferName,
-            sourceEnvironmentId: sourceId,
-            destinationEnvironmentId: destinationId,
-            selectedItemIds,
-            strategy,
-        });
-        setTransfers((current) => [created, ...current]);
-        setSelectedTransferId(created.id);
-        setPage('monitor');
-        setIsCreating(false);
+        setApiError(null);
+        try {
+            const created = await service.createContentTransfer({
+                name: transferName,
+                sourceEnvironmentId: sourceId,
+                destinationEnvironmentId: destinationId,
+                selectedItemIds,
+                strategy,
+            });
+            setTransfers((current) => [created, ...current]);
+            setSelectedTransferId(created.id);
+            setPage('monitor');
+        } catch (err) {
+            setApiError(err instanceof Error ? err.message : 'Failed to create transfer');
+        } finally {
+            setIsCreating(false);
+        }
     };
 
     const retryTransfer = async (id: string) => {
