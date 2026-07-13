@@ -91,7 +91,6 @@ function pageToTreeItem(page: Record<string, unknown>): ContentTreeItem {
     const id = (page.id ?? '') as string;
     const path = (page.path ?? '') as string;
     const name = (page.displayName || page.name || '') as string;
-    const templateId = (page.templateId ?? '') as string;
     if (id && path) itemIdToPath.set(id, path);
 
     const rawChildren = page.children;
@@ -99,14 +98,47 @@ function pageToTreeItem(page: Record<string, unknown>): ContentTreeItem {
         ? (rawChildren as Record<string, unknown>[]).map(pageToTreeItem)
         : [];
 
-    return { id, name, path, template: templateId, updatedAt: '', dependencies: [], children };
+    return { id, name, path, template: '', updatedAt: '', dependencies: [], children };
+}
+
+async function fetchChildrenRecursive(
+    sdk: ClientSDK,
+    siteId: string,
+    pageId: string,
+    contextId: string,
+    depth = 0,
+): Promise<ContentTreeItem[]> {
+    if (depth >= 4 || !pageId) return [];
+    try {
+        const res = await sdk.query('xmc.xmapp.listPageChildren', {
+            params: {
+                path: { siteId, pageId },
+                query: { sitecoreContextId: contextId },
+            },
+        });
+        const hierData = unwrap<Record<string, unknown>>(res.data);
+        const rawChildren = hierData?.children;
+        if (!Array.isArray(rawChildren)) return [];
+
+        return Promise.all(
+            (rawChildren as Record<string, unknown>[]).map(async (child) => {
+                const item = pageToTreeItem(child);
+                if (child.hasChildren) {
+                    item.children = await fetchChildrenRecursive(sdk, siteId, child.id as string, contextId, depth + 1);
+                }
+                return item;
+            }),
+        );
+    } catch (err) {
+        console.warn(`[ContentBridge] listPageChildren failed for page ${pageId}:`, err);
+        return [];
+    }
 }
 
 function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
     const id = (node.id ?? '') as string;
     const path = (node.path ?? '') as string;
     const name = (node.name ?? '') as string;
-    const tmpl = (node.template as Record<string, unknown> | undefined)?.name as string ?? '';
     if (id && path) itemIdToPath.set(id, path);
 
     const childContainer = node.children as Record<string, unknown> | undefined;
@@ -115,7 +147,7 @@ function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
         ? (rawResults as Record<string, unknown>[]).map(gqlNodeToTreeItem)
         : [];
 
-    return { id, name, path, template: tmpl, updatedAt: '', dependencies: [], children };
+    return { id, name, path, template: '', updatedAt: '', dependencies: [], children };
 }
 
 function mapState(s: string): TransferStatus {
@@ -229,7 +261,7 @@ export function createContentBridgeService(): ContentBridgeService {
                     params: { query: { sitecoreContextId: environmentId } },
                 });
                 const sites = unwrapArray<Record<string, unknown>>(sitesResult.data);
-                console.log('[ContentBridge] listSites result:', sites);
+                console.log('[ContentBridge] listSites:', sites.length, 'sites');
 
                 for (const site of sites) {
                     const siteId = site.id as string;
@@ -242,8 +274,27 @@ export function createContentBridgeService(): ContentBridgeService {
                             },
                         });
                         const hierData = unwrap<Record<string, unknown>>(hier.data);
-                        if (hierData?.page) {
-                            tree.push(pageToTreeItem(hierData.page as Record<string, unknown>));
+                        console.log('[ContentBridge] retrieveSiteHierarchy:', hierData);
+
+                        const rootPage = hierData?.page as Record<string, unknown> | undefined;
+                        const hierChildren = hierData?.children;
+
+                        if (rootPage) {
+                            const rootItem = pageToTreeItem(rootPage);
+
+                            if (Array.isArray(hierChildren) && hierChildren.length > 0) {
+                                rootItem.children = await Promise.all(
+                                    (hierChildren as Record<string, unknown>[]).map(async (child) => {
+                                        const childItem = pageToTreeItem(child);
+                                        if (child.hasChildren) {
+                                            childItem.children = await fetchChildrenRecursive(sdkClient!, siteId, child.id as string, environmentId);
+                                        }
+                                        return childItem;
+                                    }),
+                                );
+                            }
+
+                            tree.push(rootItem);
                         }
                     } catch (err) {
                         console.warn(`[ContentBridge] Hierarchy fetch failed for site ${siteId}:`, err);
@@ -261,7 +312,6 @@ export function createContentBridgeService(): ContentBridgeService {
                             query: { sitecoreContextId: environmentId },
                         },
                     });
-                    console.log('[ContentBridge] GraphQL content tree result:', gql);
                     const gqlPayload = unwrap<Record<string, unknown>>(gql);
                     const root = gqlPayload?.item as Record<string, unknown> | undefined;
                     if (root?.children) {
@@ -274,16 +324,15 @@ export function createContentBridgeService(): ContentBridgeService {
                     if (ml?.children) {
                         const results = (ml.children as Record<string, unknown>).results as Record<string, unknown>[];
                         if (Array.isArray(results)) {
-                            const mlTree: ContentTreeItem = {
+                            tree.push({
                                 id: (ml.id ?? 'media-library') as string,
                                 name: (ml.name ?? 'Media Library') as string,
                                 path: (ml.path ?? '/sitecore/media library') as string,
-                                template: 'Media Folder',
+                                template: '',
                                 updatedAt: '',
                                 dependencies: [],
                                 children: results.map(gqlNodeToTreeItem),
-                            };
-                            tree.push(mlTree);
+                            });
                         }
                     }
                 } catch (err) {

@@ -828,7 +828,6 @@ function TreeNode({
                     <input checked={selectedItemIds.includes(item.id)} onChange={() => toggleItem(item)} type="checkbox" />
                     <span>{item.name}</span>
                 </label>
-                <small>{item.template}</small>
                 {hasChildren && (
                     <button className={styles.iconButton} onClick={() => toggleItem(item, true)} title="Toggle subtree" type="button">
                         <FolderTree size={15} aria-hidden />
