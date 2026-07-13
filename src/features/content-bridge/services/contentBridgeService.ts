@@ -1,5 +1,4 @@
-﻿import { contentTree, dependencyFindings, environments, transfers } from '../mockData';
-import type { ContentEnvironment, ContentTreeItem, DependencyFinding, TransferDraft, TransferRecord } from '../types';
+﻿import type { ContentEnvironment, ContentTreeItem, DependencyFinding, TransferDraft, TransferRecord } from '../types';
 
 const contentTransferApiBase = process.env.NEXT_PUBLIC_SITECORE_CONTENT_TRANSFER_API_BASE_URL ?? '';
 const itemTransferApiBase = process.env.NEXT_PUBLIC_SITECORE_ITEM_TRANSFER_API_BASE_URL ?? '';
@@ -38,10 +37,7 @@ let currentClientId: string | null = null;
 let currentClientSecret: string | null = null;
 let authState: AuthState = { status: 'disconnected' };
 
-const wait = (duration = 220) =>
-    new Promise((resolve) => {
-        window.setTimeout(resolve, duration);
-    });
+
 
 function getTokenFromStorage(): { clientId: string; clientSecret: string } | null {
     try {
@@ -295,94 +291,53 @@ export function createContentBridgeService(): ContentBridgeService {
         },
 
         async getEnvironments() {
-            await wait();
             const live = await getLiveEnvironments();
-            return live ?? environments;
+            if (!live) throw new Error('Failed to load environments from Sitecore API. Check your connection and try again.');
+            return live;
         },
 
         async getContentTree(environmentId) {
-            await wait();
             const live = await getLiveContentTree(environmentId);
-            return live ?? contentTree;
+            if (!live) throw new Error('Failed to load content tree from Sitecore API. Check your connection and try again.');
+            return live;
         },
 
         async validateDependencies(itemIds) {
-            await wait(280);
-            if (itemIds.length === 0) {
-                return [];
-            }
+            if (itemIds.length === 0) return [];
 
-            return dependencyFindings.filter((finding) =>
-                itemIds.some((id) => finding.id.endsWith('1') || id.includes('products'))
+            const payload = await requestJson<DependencyFinding[] | { findings: DependencyFinding[] }>(
+                `${contentTransferApiBase}/validate-dependencies`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ itemIds }),
+                }
             );
+
+            if (!payload) throw new Error('Failed to validate dependencies. The Content Transfer API may not support this endpoint yet.');
+
+            if (Array.isArray(payload)) return payload;
+            if ('findings' in payload && Array.isArray(payload.findings)) return payload.findings;
+
+            throw new Error('Unexpected response format from dependency validation API.');
         },
 
         async createContentTransfer(draft) {
-            await wait(420);
-
             const live = await createLiveContentTransfer(draft);
-            if (live) return live;
-
-            const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
-
-            return {
-                id: `tr-${Math.floor(Math.random() * 9000) + 1000}`,
-                name: draft.name,
-                sourceEnvironmentId: draft.sourceEnvironmentId,
-                destinationEnvironmentId: draft.destinationEnvironmentId,
-                selectedItemIds: draft.selectedItemIds,
-                strategy: draft.strategy,
-                status: 'queued',
-                progress: 8,
-                createdBy: 'Current user',
-                createdAt: now,
-                updatedAt: now,
-                contentTransferRequestId: `ct-${Math.floor(Math.random() * 90000) + 10000}`,
-                itemTransferJobId: `it-${Math.floor(Math.random() * 90000) + 10000}`,
-                blobUrl: 'pending-content-transfer-blob.zip',
-                auditLog: [
-                    {
-                        id: 'audit-new-1',
-                        timestamp: now,
-                        actor: 'Current user',
-                        action: 'Created transfer request',
-                        detail: 'Content Transfer API request prepared for Item Transfer blob consumption.',
-                    },
-                ],
-            };
+            if (!live) throw new Error('Failed to create content transfer. Check your connection and try again.');
+            return live;
         },
 
         async getTransfers() {
-            await wait();
             const live = await getLiveTransfers();
-            return live ?? transfers;
+            if (!live) throw new Error('Failed to load transfers from Sitecore API. Check your connection and try again.');
+            return live;
         },
 
         async retryTransfer(id) {
-            await wait(360);
-
             const live = await retryLiveTransfer(id);
-            if (live) return live;
-
-            const transfer = transfers.find((item) => item.id === id) ?? transfers[0];
-
-            return {
-                ...transfer,
-                status: 'queued',
-                progress: 5,
-                failureReason: undefined,
-                updatedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
-                auditLog: [
-                    {
-                        id: `audit-retry-${Date.now()}`,
-                        timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
-                        actor: 'Current user',
-                        action: 'Retried transfer',
-                        detail: 'Item Transfer API consumption was queued again.',
-                    },
-                    ...transfer.auditLog,
-                ],
-            };
+            if (!live) throw new Error('Failed to retry transfer. Check your connection and try again.');
+            return live;
         },
     };
 }

@@ -91,12 +91,12 @@ export function ContentBridgeApp() {
     const [environments, setEnvironments] = useState<ContentEnvironment[]>([]);
     const [tree, setTree] = useState<ContentTreeItem[]>([]);
     const [transfers, setTransfers] = useState<TransferRecord[]>([]);
-    const [selectedTransferId, setSelectedTransferId] = useState('tr-1042');
-    const [sourceId, setSourceId] = useState('xm-stage');
-    const [destinationId, setDestinationId] = useState('xm-prod');
-    const [selectedItemIds, setSelectedItemIds] = useState<string[]>(['home-products-launchpad']);
+    const [selectedTransferId, setSelectedTransferId] = useState('');
+    const [sourceId, setSourceId] = useState('');
+    const [destinationId, setDestinationId] = useState('');
+    const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
     const [strategy, setStrategy] = useState<MergeStrategy>('merge');
-    const [transferName, setTransferName] = useState('Launchpad promotion');
+    const [transferName, setTransferName] = useState('');
     const [dependencyResults, setDependencyResults] = useState<DependencyFinding[]>([]);
     const [isValidating, setIsValidating] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
@@ -225,17 +225,14 @@ export function ContentBridgeApp() {
     const handleDisconnect = () => {
         service.disconnect();
         setAuthState({ status: 'disconnected' });
-        setIsLoadingData(true);
-        Promise.all([
-            service.getEnvironments(),
-            service.getContentTree(sourceId),
-            service.getTransfers(),
-        ]).then(([envs, contentTreeResult, transfersResult]) => {
-            setEnvironments(envs);
-            setTree(contentTreeResult);
-            setTransfers(transfersResult);
-            setIsLoadingData(false);
-        });
+        setEnvironments([]);
+        setTree([]);
+        setTransfers([]);
+        setSelectedTransferId('');
+        setSourceId('');
+        setDestinationId('');
+        setSelectedItemIds([]);
+        setTransferName('');
     };
 
     return (
