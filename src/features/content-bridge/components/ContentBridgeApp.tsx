@@ -346,6 +346,7 @@ export function ContentBridgeApp() {
                 {page === 'dashboard' && (
                     <DashboardPage
                         activeTransfers={activeTransfers}
+                        environments={environments}
                         failedTransfers={failedTransfers}
                         transfers={transfers}
                         setPage={setPage}
@@ -399,6 +400,7 @@ export function ContentBridgeApp() {
 
 function DashboardPage({
     activeTransfers,
+    environments,
     failedTransfers,
     transfers,
     setPage,
@@ -406,6 +408,7 @@ function DashboardPage({
     apiStatus,
 }: {
     activeTransfers: TransferRecord[];
+    environments: ContentEnvironment[];
     failedTransfers: TransferRecord[];
     transfers: TransferRecord[];
     setPage: (page: PageKey) => void;
