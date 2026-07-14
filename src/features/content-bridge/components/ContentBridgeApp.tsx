@@ -529,6 +529,12 @@ function WizardPage({
                     </label>
                     <EnvironmentSelect environments={environments} label="Source environment" value={sourceId} onChange={setSourceId} />
                     <EnvironmentSelect environments={environments} label="Destination environment" value={destinationId} onChange={setDestinationId} />
+                    {sourceId && destinationId && sourceId === destinationId && (
+                        <div className={styles.hintMessage}>
+                            <AlertTriangle size={14} aria-hidden />
+                            Source and destination environments must be different.
+                        </div>
+                    )}
                 </div>
             </section>
 
