@@ -16,7 +16,35 @@ export interface ContentBridgeService {
 
 let sdkClient: ClientSDK | null = null;
 let appContextData: ApplicationContext | null = null;
-let transferRecords: TransferRecord[] = [];
+const STORAGE_KEY = 'contentbridge_transfers';
+const RETENTION_DAYS = 180;
+
+function isExpired(record: TransferRecord): boolean {
+    const created = new Date(record.createdAt).getTime();
+    return Date.now() - created > RETENTION_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function loadTransfers(): TransferRecord[] {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return [];
+        const records = JSON.parse(raw) as TransferRecord[];
+        return records.filter((r) => !isExpired(r));
+    } catch {
+        return [];
+    }
+}
+
+function saveTransfers(records: TransferRecord[]) {
+    try {
+        const active = records.filter((r) => !isExpired(r));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(active));
+    } catch {
+        // storage full or unavailable
+    }
+}
+
+let transferRecords: TransferRecord[] = loadTransfers();
 const itemIdToPath = new Map<string, string>();
 const applyingTransfers = new Set<string>();
 
@@ -460,6 +488,7 @@ async function applyTransfer(rec: TransferRecord) {
         });
     } finally {
         applyingTransfers.delete(rec.id);
+        saveTransfers(transferRecords);
     }
 }
 
@@ -649,6 +678,7 @@ export function createContentBridgeService(): ContentBridgeService {
             };
 
             transferRecords = [record, ...transferRecords];
+            saveTransfers(transferRecords);
             return record;
         },
 
@@ -691,6 +721,7 @@ export function createContentBridgeService(): ContentBridgeService {
                     }
                 }
             }
+            saveTransfers(transferRecords);
             return [...transferRecords];
         },
 
