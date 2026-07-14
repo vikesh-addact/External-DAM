@@ -2,7 +2,6 @@ export type EnvironmentType = "source" | "destination";
 
 export type TransferStatus =
   | "draft"
-  | "validating"
   | "ready"
   | "creating"
   | "queued"
@@ -29,14 +28,6 @@ export interface ContentTreeItem {
   updatedAt: string;
   dependencies: string[];
   children?: ContentTreeItem[];
-}
-
-export interface DependencyFinding {
-  id: string;
-  itemName: string;
-  dependency: string;
-  severity: "info" | "warning" | "critical";
-  message: string;
 }
 
 export interface TransferRecord {

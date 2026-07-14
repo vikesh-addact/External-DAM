@@ -1,11 +1,10 @@
 ﻿import type { ClientSDK } from '@sitecore-marketplace-sdk/client';
 import type { ApplicationContext } from '@sitecore-marketplace-sdk/client';
-import type { ContentEnvironment, ContentTreeItem, DependencyFinding, MergeStrategy, TransferDraft, TransferRecord, TransferStatus } from '../types';
+import type { ContentEnvironment, ContentTreeItem, MergeStrategy, TransferDraft, TransferRecord, TransferStatus } from '../types';
 
 export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
     getContentTree(environmentId: string): Promise<ContentTreeItem[]>;
-    validateDependencies(itemIds: string[], tree: ContentTreeItem[]): Promise<DependencyFinding[]>;
     createContentTransfer(draft: TransferDraft): Promise<TransferRecord>;
     getTransfers(): Promise<TransferRecord[]>;
     retryTransfer(id: string): Promise<TransferRecord>;
@@ -586,34 +585,6 @@ export function createContentBridgeService(): ContentBridgeService {
 
             console.log('[ContentBridge] Final content tree:', tree);
             return tree;
-        },
-
-        async validateDependencies(itemIds, tree) {
-            if (itemIds.length === 0) return [];
-
-            const findings: DependencyFinding[] = [];
-            const selectedSet = new Set(itemIds);
-
-            function walk(items: ContentTreeItem[]) {
-                for (const item of items) {
-                    if (item.children?.length) {
-                        const hasUnselectedChildren = item.children.some((child) => !selectedSet.has(child.id));
-                        if (selectedSet.has(item.id) && hasUnselectedChildren) {
-                            findings.push({
-                                id: uid('dep'),
-                                itemName: item.name,
-                                dependency: 'Child items',
-                                severity: 'warning',
-                                message: `"${item.name}" has children that are not included in the selection.`,
-                            });
-                        }
-                        walk(item.children);
-                    }
-                }
-            }
-
-            walk(tree);
-            return findings;
         },
 
         async createContentTransfer(draft) {

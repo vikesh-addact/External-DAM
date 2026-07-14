@@ -24,7 +24,7 @@ import {
     Split,
 } from 'lucide-react';
 import { createContentBridgeService } from '../services/contentBridgeService';
-import type { ContentEnvironment, ContentTreeItem, DependencyFinding, MergeStrategy, TransferRecord, TransferStatus } from '../types';
+import type { ContentEnvironment, ContentTreeItem, MergeStrategy, TransferRecord, TransferStatus } from '../types';
 import styles from './ContentBridgeApp.module.css';
 
 type PageKey = 'dashboard' | 'wizard' | 'monitor' | 'history' | 'details' | 'settings';
@@ -46,7 +46,6 @@ const strategyLabels: Record<MergeStrategy, string> = {
 
 const statusLabels: Record<TransferStatus, string> = {
     draft: 'Draft',
-    validating: 'Validating',
     ready: 'Ready',
     creating: 'Creating',
     queued: 'Queued',
@@ -97,10 +96,9 @@ export function ContentBridgeApp() {
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [strategy, setStrategy] = useState<MergeStrategy>('merge');
     const [transferName, setTransferName] = useState('');
-    const [dependencyResults, setDependencyResults] = useState<DependencyFinding[]>([]);
-    const [isValidating, setIsValidating] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
     const [isLoadingData, setIsLoadingData] = useState(true);
+    const [treeLoading, setTreeLoading] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
     const [sdkConnected, setSdkConnected] = useState(false);
 
@@ -135,22 +133,8 @@ export function ContentBridgeApp() {
                 ]);
 
                 if (!cancelled) {
-                    setEnvironments(envs);
+                    setEnvironments(envs.filter((e) => e.type !== 'Production'));
                     setTransfers(transfersResult);
-
-                    const effectiveSource = sourceId || envs[0]?.id || '';
-                    if (!sourceId && effectiveSource) {
-                        setSourceId(effectiveSource);
-                    }
-
-                    if (effectiveSource) {
-                        const contentTreeResult = await service.getContentTree(effectiveSource);
-                        if (!cancelled) {
-                            setTree(contentTreeResult);
-                            setExpandedIds(new Set(contentTreeResult.map((item) => item.id)));
-                        }
-                    }
-
                     if (!cancelled) setIsLoadingData(false);
                 }
             } catch (err) {
@@ -168,6 +152,37 @@ export function ContentBridgeApp() {
             cancelled = true;
         };
     }, [service, sdkConnected, sourceId]);
+
+    useEffect(() => {
+        if (!sdkConnected || isLoadingData || !sourceId) return;
+
+        let cancelled = false;
+
+        const loadTree = async () => {
+            try {
+                setTreeLoading(true);
+                const contentTreeResult = await service.getContentTree(sourceId);
+                if (!cancelled) {
+                    setTree(contentTreeResult);
+                    setExpandedIds(new Set(contentTreeResult.map((item) => item.id)));
+                    setSelectedItemIds([]);
+                }
+            } catch (err) {
+                if (!cancelled) {
+                    console.error('Error loading content tree:', err);
+                    setApiError(err instanceof Error ? err.message : 'Failed to load content tree');
+                }
+            } finally {
+                if (!cancelled) setTreeLoading(false);
+            }
+        };
+
+        loadTree();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [service, sdkConnected, isLoadingData, sourceId]);
 
     useEffect(() => {
         if (!sdkConnected || isLoadingData) return;
@@ -216,21 +231,6 @@ export function ContentBridgeApp() {
             }
             return next;
         });
-    };
-
-    const validateSelection = async () => {
-        setIsValidating(true);
-        setApiError(null);
-        const timer = setTimeout(() => setIsValidating(false), 10000);
-        try {
-            const results = await service.validateDependencies(selectedItemIds, tree);
-            setDependencyResults(results);
-        } catch (err) {
-            setApiError(err instanceof Error ? err.message : 'Validation failed');
-        } finally {
-            clearTimeout(timer);
-            setIsValidating(false);
-        }
     };
 
     const createTransfer = async () => {
@@ -356,12 +356,10 @@ export function ContentBridgeApp() {
                 {page === 'wizard' && (
                     <WizardPage
                         allItems={allItems}
-                        dependencyResults={dependencyResults}
                         destinationId={destinationId}
                         environments={environments}
                         expandedIds={expandedIds}
                         isCreating={isCreating}
-                        isValidating={isValidating}
                         selectedItemIds={selectedItemIds}
                         selectedItems={selectedItems}
                         setDestinationId={setDestinationId}
@@ -373,8 +371,8 @@ export function ContentBridgeApp() {
                         toggleExpand={toggleExpand}
                         transferName={transferName}
                         tree={tree}
+                        treeLoading={treeLoading}
                         toggleItem={toggleItem}
-                        validateSelection={validateSelection}
                         createTransfer={createTransfer}
                     />
                 )}
@@ -438,7 +436,7 @@ function DashboardPage({
                     </button>
                 </div>
                 <div className={styles.pipeline}>
-                    {['Select content', 'Validate dependencies', 'Create transfer', 'Consume blob'].map((step, index) => (
+                    {['Select content', 'Create transfer', 'Consume blob'].map((step, index) => (
                         <div className={styles.pipelineStep} key={step}>
                             <span>{index + 1}</span>
                             <strong>{step}</strong>
@@ -469,12 +467,10 @@ function DashboardPage({
 
 function WizardPage({
     allItems,
-    dependencyResults,
     destinationId,
     environments,
     expandedIds,
     isCreating,
-    isValidating,
     selectedItemIds,
     selectedItems,
     setDestinationId,
@@ -486,17 +482,15 @@ function WizardPage({
     toggleExpand,
     transferName,
     tree,
+    treeLoading,
     toggleItem,
-    validateSelection,
     createTransfer,
 }: {
     allItems: ContentTreeItem[];
-    dependencyResults: DependencyFinding[];
     destinationId: string;
     environments: ContentEnvironment[];
     expandedIds: Set<string>;
     isCreating: boolean;
-    isValidating: boolean;
     selectedItemIds: string[];
     selectedItems: ContentTreeItem[];
     setDestinationId: (id: string) => void;
@@ -508,8 +502,8 @@ function WizardPage({
     toggleExpand: (id: string) => void;
     transferName: string;
     tree: ContentTreeItem[];
+    treeLoading: boolean;
     toggleItem: (item: ContentTreeItem, includeSubtree?: boolean) => void;
-    validateSelection: () => void;
     createTransfer: () => void;
 }) {
     const canCreate =
@@ -517,8 +511,7 @@ function WizardPage({
         sourceId.length > 0 &&
         destinationId.length > 0 &&
         sourceId !== destinationId &&
-        selectedItemIds.length > 0 &&
-        dependencyResults.every((finding) => finding.severity !== 'critical');
+        selectedItemIds.length > 0;
 
     return (
         <div className={styles.wizardGrid}>
@@ -544,74 +537,42 @@ function WizardPage({
                     <div>
                         <h2>2. Select items and subtrees</h2>
                         <p>
-                            {selectedItemIds.length} of {allItems.length} available items selected.
+                            {!sourceId
+                                ? 'Select a source environment to load content.'
+                                : treeLoading
+                                    ? 'Loading content tree...'
+                                    : `${selectedItemIds.length} of ${allItems.length} available items selected.`}
                         </p>
                     </div>
                     <FolderTree size={22} aria-hidden />
                 </div>
-                <div className={styles.tree}>
-                    {tree.map((item) => (
-                        <TreeNode
-                            item={item}
-                            key={item.id}
-                            selectedItemIds={selectedItemIds}
-                            toggleItem={toggleItem}
-                            expandedIds={expandedIds}
-                            toggleExpand={toggleExpand}
-                        />
-                    ))}
-                </div>
+                {treeLoading ? (
+                    <div className={styles.emptyState}>
+                        <Loader2 className={styles.spin} size={18} aria-hidden />
+                        Loading content tree...
+                    </div>
+                ) : !sourceId ? (
+                    <div className={styles.emptyState}>Select a source environment above to browse content.</div>
+                ) : (
+                    <div className={styles.tree}>
+                        {tree.map((item) => (
+                            <TreeNode
+                                item={item}
+                                key={item.id}
+                                selectedItemIds={selectedItemIds}
+                                toggleItem={toggleItem}
+                                expandedIds={expandedIds}
+                                toggleExpand={toggleExpand}
+                            />
+                        ))}
+                    </div>
+                )}
             </section>
 
             <section className={styles.panel}>
                 <div className={styles.panelHeader}>
                     <div>
-                        <h2>3. Validate dependencies</h2>
-                        <p>Check references before creating the Content Transfer API request.</p>
-                    </div>
-                    <button
-                        className={styles.secondaryButton}
-                        disabled={isValidating || selectedItemIds.length === 0 || !transferName.trim()}
-                        onClick={validateSelection}
-                        type="button"
-                    >
-                        {isValidating ? <Loader2 className={styles.spin} size={16} aria-hidden /> : <ListChecks size={16} aria-hidden />}
-                        Validate
-                    </button>
-                </div>
-                {selectedItemIds.length === 0 || !transferName.trim() ? (
-                    <div className={styles.hintMessage}>
-                        <AlertTriangle size={14} aria-hidden />
-                        {selectedItemIds.length === 0 && !transferName.trim()
-                            ? 'Enter a transfer name and select items to validate.'
-                            : selectedItemIds.length === 0
-                                ? 'Select items from the tree to validate.'
-                                : 'Enter a transfer name to enable validation.'}
-                    </div>
-                ) : null}
-                <div className={styles.dependencyList}>
-                    {dependencyResults.length === 0 ? (
-                        <div className={styles.emptyState}>Run validation after selecting content.</div>
-                    ) : (
-                        dependencyResults.map((finding) => (
-                            <div className={styles.dependencyItem} key={finding.id}>
-                                <span className={styles[finding.severity]}>{finding.severity}</span>
-                                <div>
-                                    <strong>
-                                        {finding.itemName} needs {finding.dependency}
-                                    </strong>
-                                    <p>{finding.message}</p>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-            </section>
-
-            <section className={styles.panel}>
-                <div className={styles.panelHeader}>
-                    <div>
-                        <h2>4. Merge strategy</h2>
+                        <h2>3. Merge strategy</h2>
                         <p>Choose how destination items should be reconciled.</p>
                     </div>
                 </div>
@@ -848,10 +809,6 @@ function SettingsPage({
                 <div className={styles.toggleList}>
                     <label>
                         <input defaultChecked type="checkbox" />
-                        Require dependency validation before transfer creation
-                    </label>
-                    <label>
-                        <input defaultChecked type="checkbox" />
                         Keep audit logs for 180 days
                     </label>
                     <label>
@@ -879,6 +836,7 @@ function EnvironmentSelect({
         <label>
             {label}
             <select value={value} onChange={(event) => onChange(event.target.value)}>
+                <option value="">Select environment</option>
                 {environments.map((environment) => (
                     <option key={environment.id} value={environment.id}>
                         {environment.name} - {environment.type}
