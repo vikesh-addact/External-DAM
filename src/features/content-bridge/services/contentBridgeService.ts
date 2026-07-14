@@ -353,20 +353,29 @@ async function applyTransfer(rec: TransferRecord) {
 
             audit('ConsumeFile starting', `file=${normalizedFileName}, env=${rec.destinationEnvironmentId}`);
 
-            const consumeRes = await sdkClient.query('xmc.contentTransfer.consumeFile', {
-                params: {
-                    query: {
-                        databaseName: 'master',
-                        fileName: normalizedFileName,
-                        sitecoreContextId: rec.destinationEnvironmentId,
+            let consumeRes: Awaited<ReturnType<typeof sdkClient.query>> | undefined;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                consumeRes = await sdkClient.query('xmc.contentTransfer.consumeFile', {
+                    params: {
+                        query: {
+                            databaseName: 'master',
+                            fileName: normalizedFileName,
+                            sitecoreContextId: rec.destinationEnvironmentId,
+                        },
                     },
-                },
-            });
+                });
 
-            if (consumeRes.error) {
+                if (!consumeRes.error) break;
+
                 const errMsg = consumeRes.error.message || JSON.stringify(consumeRes.error);
-                audit('ConsumeFile failed', errMsg);
-                throw new Error(`consumeFile failed: ${errMsg}`);
+                if (attempt < 2) {
+                    const delay = 2000 * Math.pow(2, attempt);
+                    audit('ConsumeFile retry', `attempt ${attempt + 1} failed: ${errMsg}, retrying in ${delay}ms`);
+                    await new Promise((r) => setTimeout(r, delay));
+                } else {
+                    audit('ConsumeFile failed', errMsg);
+                    throw new Error(`consumeFile failed: ${errMsg}`);
+                }
             }
 
             audit('ConsumeFile accepted', `file=${normalizedFileName}`);
@@ -375,7 +384,8 @@ async function applyTransfer(rec: TransferRecord) {
             rec.updatedAt = ts(new Date());
 
             for (let attempt = 0; attempt < 30; attempt++) {
-                await new Promise((r) => setTimeout(r, 3000));
+                const delay = Math.min(3000 * Math.pow(1.5, attempt), 30000);
+                await new Promise((r) => setTimeout(r, delay));
                 try {
                     const blobRes = await sdkClient.query('xmc.contentTransfer.getBlobState', {
                         params: {
@@ -387,7 +397,10 @@ async function applyTransfer(rec: TransferRecord) {
                     });
 
                     if (blobRes.error) {
-                        audit('GetBlobState query error', `attempt ${attempt + 1}: ${blobRes.error.message || JSON.stringify(blobRes.error)}`);
+                        const errMsg = blobRes.error.message || JSON.stringify(blobRes.error);
+                        if (attempt === 0 || attempt === 29 || errMsg.includes('BlobNotFound') || errMsg.includes('404')) {
+                            audit('GetBlobState query error', `attempt ${attempt + 1}: ${errMsg}`);
+                        }
                         continue;
                     }
 
@@ -411,6 +424,17 @@ async function applyTransfer(rec: TransferRecord) {
                         continue;
                     }
                     if (blobStatus === 'Error') {
+                        const isBlobNotFound = /BlobNotFound|does not exist/i.test(blobError ?? '');
+
+                        if (isBlobNotFound && attempt === 0) {
+                            audit('GetBlobState early 404', 'Blob missing on first poll; consume job likely completed faster than our poll interval');
+                            rec.status = 'completed';
+                            rec.progress = 100;
+                            rec.updatedAt = ts(new Date());
+                            applyingTransfers.delete(rec.id);
+                            return;
+                        }
+
                         throw new Error(`Blob consumption failed: ${blobError || JSON.stringify(blobData)}`);
                     }
                 } catch (err) {
@@ -418,7 +442,7 @@ async function applyTransfer(rec: TransferRecord) {
                 }
             }
 
-            throw new Error('Blob consumption timed out after 90 seconds');
+            throw new Error('Blob consumption timed out after max polling attempts');
         }
 
         rec.status = 'completed';
