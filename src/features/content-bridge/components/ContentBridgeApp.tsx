@@ -454,6 +454,7 @@ function DashboardPage({
                     </button>
                 </div>
                 <TransferTable
+                    environments={environments}
                     transfers={transfers.slice(0, 4)}
                     onOpen={(id) => {
                         setSelectedTransferId(id);
@@ -593,7 +594,7 @@ function WizardPage({
                     <strong>Request preview</strong>
                     <span>{selectedItems.map((item) => item.name).join(', ') || 'No items selected'}</span>
                     <span>
-                        Source {sourceId} to destination {destinationId}
+                        Source {formatEnvironmentName(environments, sourceId)} to destination {formatEnvironmentName(environments, destinationId)}
                     </span>
                 </div>
                 <button className={styles.primaryButtonWide} disabled={!canCreate || isCreating} onClick={createTransfer} type="button">
