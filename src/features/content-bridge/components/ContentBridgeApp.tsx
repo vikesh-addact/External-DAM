@@ -803,26 +803,6 @@ function SettingsPage({
                     </div>
                 </div>
             </section>
-
-            <section className={styles.panel}>
-                <div className={styles.panelHeader}>
-                    <div>
-                        <h2>Governance</h2>
-                        <p>Controls for audit retention and retry behavior.</p>
-                    </div>
-                    <ShieldCheck size={22} aria-hidden />
-                </div>
-                <div className={styles.toggleList}>
-                    <label>
-                        <input defaultChecked type="checkbox" />
-                        Keep audit logs for 180 days
-                    </label>
-                    <label>
-                        <input type="checkbox" />
-                        Allow automatic retry for transient Item Transfer failures
-                    </label>
-                </div>
-            </section>
         </div>
     );
 }
