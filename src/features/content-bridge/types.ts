@@ -28,6 +28,8 @@ export interface ContentTreeItem {
   updatedAt: string;
   dependencies: string[];
   children?: ContentTreeItem[];
+  hasMoreChildren?: boolean;
+  siteId?: string;
 }
 
 export interface TransferRecord {

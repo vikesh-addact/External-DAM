@@ -5,6 +5,7 @@ import type { ContentEnvironment, ContentTreeItem, MergeStrategy, TransferDraft,
 export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
     getContentTree(environmentId: string): Promise<ContentTreeItem[]>;
+    getPageChildren(siteId: string, pageId: string, environmentId: string): Promise<ContentTreeItem[]>;
     createContentTransfer(draft: TransferDraft): Promise<TransferRecord>;
     getTransfers(): Promise<TransferRecord[]>;
     retryTransfer(id: string): Promise<TransferRecord>;
@@ -123,51 +124,16 @@ function environmentsFromResources(resources: unknown[]): ContentEnvironment[] {
     return envs;
 }
 
-function pageToTreeItem(page: Record<string, unknown>): ContentTreeItem {
+function pageToTreeItem(page: Record<string, unknown>, siteId?: string): ContentTreeItem {
     const id = (page.id ?? '') as string;
     const path = (page.path ?? '') as string;
     const name = (page.displayName || page.name || '') as string;
     if (id && path) itemIdToPath.set(id, path);
 
     const rawChildren = page.children;
-    const children = Array.isArray(rawChildren) ? (rawChildren as Record<string, unknown>[]).map(pageToTreeItem) : [];
+    const children = Array.isArray(rawChildren) ? (rawChildren as Record<string, unknown>[]).map((c) => pageToTreeItem(c, siteId)) : [];
 
-    return { id, name, path, template: '', updatedAt: '', dependencies: [], children };
-}
-
-async function fetchChildrenRecursive(sdk: ClientSDK, siteId: string, pageId: string, contextId: string, depth = 0): Promise<ContentTreeItem[]> {
-    if (depth >= 4 || !pageId) return [];
-    try {
-        const res = await sdk.query('xmc.xmapp.listPageChildren', {
-            params: {
-                path: { siteId, pageId },
-                query: { sitecoreContextId: contextId },
-            },
-        });
-        const raw = unwrap<unknown>(res.data);
-        let children: Record<string, unknown>[] = [];
-        if (Array.isArray(raw)) {
-            children = raw as Record<string, unknown>[];
-        } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-            const obj = raw as Record<string, unknown>;
-            if (Array.isArray(obj.children)) children = obj.children as Record<string, unknown>[];
-        }
-        console.log(`[ContentBridge] listPageChildren pageId=${pageId} depth=${depth} → ${children.length} items`);
-        if (children.length === 0) return [];
-
-        return Promise.all(
-            children.map(async (child) => {
-                const item = pageToTreeItem(child);
-                if (child.hasChildren) {
-                    item.children = await fetchChildrenRecursive(sdk, siteId, child.id as string, contextId, depth + 1);
-                }
-                return item;
-            }),
-        );
-    } catch (err) {
-        console.warn(`[ContentBridge] listPageChildren failed for page ${pageId}:`, err);
-        return [];
-    }
+    return { id, name, path, template: '', updatedAt: '', dependencies: [], children, siteId };
 }
 
 function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
@@ -552,18 +518,18 @@ export function createContentBridgeService(): ContentBridgeService {
                         const hierChildren = hierData?.children;
 
                         if (rootPage) {
-                            const rootItem = pageToTreeItem(rootPage);
+                            const rootItem = pageToTreeItem(rootPage, siteId);
 
                             if (Array.isArray(hierChildren) && hierChildren.length > 0) {
-                                rootItem.children = await Promise.all(
-                                    (hierChildren as Record<string, unknown>[]).map(async (child) => {
-                                        const childItem = pageToTreeItem(child);
-                                        if (child.hasChildren) {
-                                            childItem.children = await fetchChildrenRecursive(sdkClient!, siteId, child.id as string, environmentId);
-                                        }
-                                        return childItem;
-                                    }),
-                                );
+                                rootItem.children = (hierChildren as Record<string, unknown>[]).map((child) => {
+                                    const childItem = pageToTreeItem(child, siteId);
+                                    if (child.hasChildren) {
+                                        childItem.hasMoreChildren = true;
+                                    }
+                                    return childItem;
+                                });
+                            } else if (rootPage.hasChildren) {
+                                rootItem.hasMoreChildren = true;
                             }
 
                             tree.push(rootItem);
@@ -614,6 +580,39 @@ export function createContentBridgeService(): ContentBridgeService {
 
             console.log('[ContentBridge] Final content tree:', tree);
             return tree;
+        },
+
+        async getPageChildren(siteId, pageId, environmentId) {
+            if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
+
+            try {
+                const res = await sdkClient.query('xmc.xmapp.listPageChildren', {
+                    params: {
+                        path: { siteId, pageId },
+                        query: { sitecoreContextId: environmentId },
+                    },
+                });
+                const raw = unwrap<unknown>(res.data);
+                let children: Record<string, unknown>[] = [];
+                if (Array.isArray(raw)) {
+                    children = raw as Record<string, unknown>[];
+                } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+                    const obj = raw as Record<string, unknown>;
+                    if (Array.isArray(obj.children)) children = obj.children as Record<string, unknown>[];
+                }
+                console.log(`[ContentBridge] getPageChildren pageId=${pageId} → ${children.length} items`);
+
+                return children.map((child) => {
+                    const item = pageToTreeItem(child, siteId);
+                    if (child.hasChildren) {
+                        item.hasMoreChildren = true;
+                    }
+                    return item;
+                });
+            } catch (err) {
+                console.warn(`[ContentBridge] getPageChildren failed for page ${pageId}:`, err);
+                return [];
+            }
         },
 
         async createContentTransfer(draft) {

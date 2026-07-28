@@ -77,6 +77,18 @@ function flattenTree(items: ContentTreeItem[]): ContentTreeItem[] {
     return items.flatMap((item) => [item, ...flattenTree(item.children ?? [])]);
 }
 
+function updateTreeNodeChildren(items: ContentTreeItem[], nodeId: string, children: ContentTreeItem[]): ContentTreeItem[] {
+    return items.map((item) => {
+        if (item.id === nodeId) {
+            return { ...item, children, hasMoreChildren: false };
+        }
+        if (item.children?.length) {
+            return { ...item, children: updateTreeNodeChildren(item.children, nodeId, children) };
+        }
+        return item;
+    });
+}
+
 function formatEnvironmentName(environments: ContentEnvironment[], id: string) {
     return environments.find((environment) => environment.id === id)?.name ?? id;
 }
@@ -99,6 +111,7 @@ export function ContentBridgeApp() {
     const [isCreating, setIsCreating] = useState(false);
     const [isLoadingData, setIsLoadingData] = useState(true);
     const [treeLoading, setTreeLoading] = useState(false);
+    const [loadingChildrenIds, setLoadingChildrenIds] = useState<Set<string>>(new Set());
     const [apiError, setApiError] = useState<string | null>(null);
     const [sdkConnected, setSdkConnected] = useState(false);
 
@@ -231,6 +244,27 @@ export function ContentBridgeApp() {
             }
             return next;
         });
+
+        const node = findItem(tree, id);
+        if (node?.hasMoreChildren && (!node.children || node.children.length === 0)) {
+            loadChildren(id, node.siteId ?? '', node.id);
+        }
+    };
+
+    const loadChildren = async (nodeId: string, siteId: string, pageId: string) => {
+        setLoadingChildrenIds((current) => new Set(current).add(nodeId));
+        try {
+            const children = await service.getPageChildren(siteId, pageId, sourceId);
+            setTree((current) => updateTreeNodeChildren(current, nodeId, children));
+        } catch (err) {
+            console.error('Error loading children:', err);
+        } finally {
+            setLoadingChildrenIds((current) => {
+                const next = new Set(current);
+                next.delete(nodeId);
+                return next;
+            });
+        }
     };
 
     const createTransfer = async () => {
@@ -363,6 +397,7 @@ export function ContentBridgeApp() {
                         isCreating={isCreating}
                         selectedItemIds={selectedItemIds}
                         selectedItems={selectedItems}
+                        loadingChildrenIds={loadingChildrenIds}
                         setDestinationId={setDestinationId}
                         setSourceId={setSourceId}
                         setStrategy={setStrategy}
@@ -477,6 +512,7 @@ function WizardPage({
     isCreating,
     selectedItemIds,
     selectedItems,
+    loadingChildrenIds,
     setDestinationId,
     setSourceId,
     setStrategy,
@@ -497,6 +533,7 @@ function WizardPage({
     isCreating: boolean;
     selectedItemIds: string[];
     selectedItems: ContentTreeItem[];
+    loadingChildrenIds: Set<string>;
     setDestinationId: (id: string) => void;
     setSourceId: (id: string) => void;
     setStrategy: (strategy: MergeStrategy) => void;
@@ -573,6 +610,7 @@ function WizardPage({
                                 toggleItem={toggleItem}
                                 expandedIds={expandedIds}
                                 toggleExpand={toggleExpand}
+                                loadingChildrenIds={loadingChildrenIds}
                             />
                         ))}
                     </div>
@@ -843,15 +881,18 @@ function TreeNode({
     toggleItem,
     expandedIds,
     toggleExpand,
+    loadingChildrenIds,
 }: {
     item: ContentTreeItem;
     selectedItemIds: string[];
     toggleItem: (item: ContentTreeItem, includeSubtree?: boolean) => void;
     expandedIds: Set<string>;
     toggleExpand: (id: string) => void;
+    loadingChildrenIds: Set<string>;
 }) {
-    const hasChildren = Boolean(item.children?.length);
+    const hasChildren = Boolean(item.children?.length || item.hasMoreChildren);
     const isExpanded = expandedIds.has(item.id);
+    const isLoadingChildren = loadingChildrenIds.has(item.id);
 
     return (
         <div className={styles.treeNode}>
@@ -878,16 +919,24 @@ function TreeNode({
             </div>
             {hasChildren && isExpanded && (
                 <div className={styles.treeChildren}>
-                    {item.children?.map((child) => (
-                        <TreeNode
-                            item={child}
-                            key={child.id}
-                            selectedItemIds={selectedItemIds}
-                            toggleItem={toggleItem}
-                            expandedIds={expandedIds}
-                            toggleExpand={toggleExpand}
-                        />
-                    ))}
+                    {isLoadingChildren ? (
+                        <div className={styles.treeRow}>
+                            <Loader2 size={14} className={styles.spin} aria-hidden />
+                            <span>Loading...</span>
+                        </div>
+                    ) : (
+                        item.children?.map((child) => (
+                            <TreeNode
+                                item={child}
+                                key={child.id}
+                                selectedItemIds={selectedItemIds}
+                                toggleItem={toggleItem}
+                                expandedIds={expandedIds}
+                                toggleExpand={toggleExpand}
+                                loadingChildrenIds={loadingChildrenIds}
+                            />
+                        ))
+                    )}
                 </div>
             )}
         </div>
