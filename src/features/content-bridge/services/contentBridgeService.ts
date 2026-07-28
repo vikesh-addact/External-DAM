@@ -7,6 +7,7 @@ export interface ContentBridgeService {
     getContentTree(environmentId: string): Promise<ContentTreeItem[]>;
     getPageChildren(siteId: string, pageId: string, environmentId: string): Promise<ContentTreeItem[]>;
     getGraphNodeChildren(itemPath: string, environmentId: string): Promise<ContentTreeItem[]>;
+    getLanguages(environmentId: string): Promise<string[]>;
     createContentTransfer(draft: TransferDraft): Promise<TransferRecord>;
     getTransfers(): Promise<TransferRecord[]>;
     retryTransfer(id: string): Promise<TransferRecord>;
@@ -168,8 +169,20 @@ function progressFor(status: TransferStatus): number {
     return 5;
 }
 
-const CONTENT_TREE_GQL = `query {
-    item(path: "/sitecore/content") {
+const CONTENT_TREE_GQL = `query($language: String!) {
+    item(path: "/sitecore/content", language: $language) {
+        id name path
+        template { name }
+        hasChildren
+        children {
+            results {
+                id name path
+                template { name }
+                hasChildren
+            }
+        }
+    }
+    mediaLibrary: item(path: "/sitecore/media library", language: $language) {
         id name path
         template { name }
         hasChildren
@@ -183,8 +196,8 @@ const CONTENT_TREE_GQL = `query {
     }
 }`;
 
-const GQL_CHILDREN_QUERY = `query($path: String!) {
-    item(path: $path) {
+const GQL_CHILDREN_QUERY = `query($path: String!, $language: String!) {
+    item(path: $path, language: $language) {
         id name path
         template { name }
         hasChildren
@@ -468,15 +481,31 @@ export function createContentBridgeService(): ContentBridgeService {
             return envs;
         },
 
+        async getLanguages(environmentId) {
+            if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
+            try {
+                const res = await sdkClient.query('xmc.xmapp.listLanguages', {
+                    params: { query: { sitecoreContextId: environmentId } },
+                });
+                const raw = unwrapArray<Record<string, unknown>>(res.data);
+                const codes = raw.map((l) => (l.iso ?? l.code ?? l.languageCode ?? '') as string).filter(Boolean);
+                console.log('[ContentBridge] Languages:', codes);
+                return codes.length > 0 ? codes : ['en'];
+            } catch (err) {
+                console.warn('[ContentBridge] listLanguages failed, defaulting to en:', err);
+                return ['en'];
+            }
+        },
+
         async getContentTree(environmentId) {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
             const tree: ContentTreeItem[] = [];
 
             try {
-                const gql = await sdkClient.mutate('xmc.authoring.graphql', {
+                const gql = await sdkClient.mutate('xmc.preview.graphql', {
                     params: {
-                        body: { query: CONTENT_TREE_GQL },
+                        body: { query: CONTENT_TREE_GQL, variables: { language: 'en' } },
                         query: { sitecoreContextId: environmentId },
                     },
                 });
@@ -491,7 +520,7 @@ export function createContentBridgeService(): ContentBridgeService {
                 }
 
                 if (gqlData?.errors) {
-                    console.warn('[ContentBridge] Authoring GraphQL errors:', gqlData.errors);
+                    console.warn('[ContentBridge] Preview GraphQL errors:', gqlData.errors);
                 }
 
                 const root = gqlPayload?.item as Record<string, unknown> | undefined;
@@ -510,8 +539,25 @@ export function createContentBridgeService(): ContentBridgeService {
                         });
                     }
                 }
+
+                const ml = gqlPayload?.mediaLibrary as Record<string, unknown> | undefined;
+                if (ml?.children) {
+                    const results = (ml.children as Record<string, unknown>).results as Record<string, unknown>[];
+                    if (Array.isArray(results)) {
+                        tree.push({
+                            id: (ml.id ?? 'media-library') as string,
+                            name: (ml.name ?? 'Media Library') as string,
+                            path: (ml.path ?? '/sitecore/media library') as string,
+                            template: '',
+                            updatedAt: '',
+                            dependencies: [],
+                            hasMoreChildren: Boolean(ml.hasChildren),
+                            children: results.map(gqlNodeToTreeItem),
+                        });
+                    }
+                }
             } catch (err) {
-                console.error('[ContentBridge] GraphQL content fetch failed:', err);
+                console.error('[ContentBridge] GraphQL content/media fetch failed:', err);
             }
 
             console.log('[ContentBridge] Final content tree:', tree);
@@ -555,11 +601,11 @@ export function createContentBridgeService(): ContentBridgeService {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
             try {
-                const gql = await sdkClient.mutate('xmc.authoring.graphql', {
+                const gql = await sdkClient.mutate('xmc.preview.graphql', {
                     params: {
                         body: {
                             query: GQL_CHILDREN_QUERY,
-                            variables: { path: itemPath },
+                            variables: { path: itemPath, language: 'en' },
                         },
                         query: { sitecoreContextId: environmentId },
                     },
