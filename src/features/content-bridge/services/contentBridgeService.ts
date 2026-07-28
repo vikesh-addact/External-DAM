@@ -146,8 +146,8 @@ function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
     const childContainer = node.children as Record<string, unknown> | undefined;
     const rawResults = childContainer?.results;
     const children = Array.isArray(rawResults) ? (rawResults as Record<string, unknown>[]).map(gqlNodeToTreeItem) : [];
-    const total = (childContainer?.total as number) ?? 0;
-    const hasMoreChildren = children.length < total;
+    const totalCount = (childContainer?.totalCount as number) ?? 0;
+    const hasMoreChildren = children.length < totalCount;
 
     return { id, name, path, template: '', updatedAt: '', dependencies: [], children, hasMoreChildren };
 }
@@ -174,17 +174,17 @@ const CONTENT_TREE_GQL = `query($language: String!) {
         id name path
         template { name }
         children {
-            total
+            totalCount
             results {
                 id name path
                 template { name }
                 children {
-                    total
+                    totalCount
                     results {
                         id name path
                         template { name }
                         children {
-                            total
+                            totalCount
                             results {
                                 id name path
                                 template { name }
@@ -202,12 +202,12 @@ const GQL_CHILDREN_QUERY = `query($path: String!, $language: String!) {
         id name path
         template { name }
         children {
-            total
+            totalCount
             results {
                 id name path
                 template { name }
                 children {
-                    total
+                    totalCount
                     results {
                         id name path
                         template { name }
@@ -518,7 +518,7 @@ export function createContentBridgeService(): ContentBridgeService {
                 if (root?.children) {
                     const rootChildren = root.children as Record<string, unknown>;
                     const results = rootChildren.results as Record<string, unknown>[];
-                    const rootTotalCount = (rootChildren.total as number) ?? 0;
+                    const rootTotalCount = (rootChildren.totalCount as number) ?? 0;
                     if (Array.isArray(results)) {
                         tree.push({
                             id: (root.id ?? 'content') as string,
