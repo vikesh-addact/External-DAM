@@ -6,7 +6,7 @@ export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
     getContentTree(environmentId: string, language: string): Promise<ContentTreeItem[]>;
     getPageChildren(siteId: string, pageId: string, environmentId: string): Promise<ContentTreeItem[]>;
-    getGraphNodeChildren(nodeId: string, environmentId: string, language: string): Promise<ContentTreeItem[]>;
+    getGraphNodeChildren(itemPath: string, environmentId: string, language: string): Promise<ContentTreeItem[]>;
     getLanguages(environmentId: string): Promise<string[]>;
     createContentTransfer(draft: TransferDraft): Promise<TransferRecord>;
     getTransfers(): Promise<TransferRecord[]>;
@@ -196,8 +196,8 @@ const CONTENT_TREE_GQL = `query($language: String!) {
     }
 }`;
 
-const GQL_CHILDREN_QUERY = `query($id: String!, $language: String!) {
-    item(id: $id, language: $language) {
+const GQL_CHILDREN_QUERY = `query($path: String!, $language: String!) {
+    item(path: $path, language: $language) {
         id name path
         template { name }
         hasChildren
@@ -597,7 +597,7 @@ export function createContentBridgeService(): ContentBridgeService {
             }
         },
 
-        async getGraphNodeChildren(nodeId, environmentId, language = 'en') {
+        async getGraphNodeChildren(itemPath, environmentId, language = 'en') {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
             try {
@@ -605,7 +605,7 @@ export function createContentBridgeService(): ContentBridgeService {
                     params: {
                         body: {
                             query: GQL_CHILDREN_QUERY,
-                            variables: { id: nodeId, language },
+                            variables: { path: itemPath, language },
                         },
                         query: { sitecoreContextId: environmentId },
                     },
@@ -624,13 +624,13 @@ export function createContentBridgeService(): ContentBridgeService {
                 if (!item?.children) return [];
 
                 const results = (item.children as Record<string, unknown>).results as Record<string, unknown>[];
-                console.log(`[ContentBridge] getGraphNodeChildren nodeId=${nodeId} → ${results?.length ?? 0} items`);
+                console.log(`[ContentBridge] getGraphNodeChildren path=${itemPath} → ${results?.length ?? 0} items`);
 
                 if (!Array.isArray(results)) return [];
 
                 return results.map((node) => gqlNodeToTreeItem(node));
             } catch (err) {
-                console.warn(`[ContentBridge] getGraphNodeChildren failed for node ${nodeId}:`, err);
+                console.warn(`[ContentBridge] getGraphNodeChildren failed for path ${itemPath}:`, err);
                 return [];
             }
         },

@@ -279,14 +279,14 @@ export function ContentBridgeApp() {
 
         const node = findItem(tree, id);
         if (node?.hasMoreChildren && (!node.children || node.children.length === 0)) {
-            loadChildren(id, node.siteId ?? '', node.id);
+            loadChildren(id, node.path);
         }
     };
 
-    const loadChildren = async (nodeId: string, _siteId: string, pageId: string) => {
+    const loadChildren = async (nodeId: string, itemPath: string) => {
         setLoadingChildrenIds((current) => new Set(current).add(nodeId));
         try {
-            const children = await service.getGraphNodeChildren(pageId, sourceId, selectedLanguage);
+            const children = await service.getGraphNodeChildren(itemPath, sourceId, selectedLanguage);
             setTree((current) => updateTreeNodeChildren(current, nodeId, children));
         } catch (err) {
             console.error('Error loading children:', err);
