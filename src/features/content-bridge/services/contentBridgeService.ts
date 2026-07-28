@@ -178,6 +178,13 @@ const CONTENT_TREE_GQL = `query($language: String!) {
                 id name path
                 template { name }
                 hasChildren
+                children {
+                    results {
+                        id name path
+                        template { name }
+                        hasChildren
+                    }
+                }
             }
         }
     }
@@ -193,6 +200,13 @@ const GQL_CHILDREN_QUERY = `query($path: String!, $language: String!) {
                 id name path
                 template { name }
                 hasChildren
+                children {
+                    results {
+                        id name path
+                        template { name }
+                        hasChildren
+                    }
+                }
             }
         }
     }
@@ -498,6 +512,7 @@ export function createContentBridgeService(): ContentBridgeService {
                 if (root?.children) {
                     const results = (root.children as Record<string, unknown>).results as Record<string, unknown>[];
                     if (Array.isArray(results)) {
+                        console.log('[ContentBridge] Content children:', results.map((r) => ({ name: r.name, hasChildren: r.hasChildren, hasChildResults: Boolean((r.children as Record<string, unknown>)?.results) })));
                         tree.push({
                             id: (root.id ?? 'content') as string,
                             name: (root.name ?? 'Content') as string,
