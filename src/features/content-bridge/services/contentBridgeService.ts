@@ -146,8 +146,7 @@ function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
     const childContainer = node.children as Record<string, unknown> | undefined;
     const rawResults = childContainer?.results;
     const children = Array.isArray(rawResults) ? (rawResults as Record<string, unknown>[]).map(gqlNodeToTreeItem) : [];
-    const totalCount = (childContainer?.totalCount as number) ?? 0;
-    const hasMoreChildren = children.length < totalCount;
+    const hasMoreChildren = !children.length && Boolean(node.hasChildren);
 
     return { id, name, path, template: '', updatedAt: '', dependencies: [], children, hasMoreChildren };
 }
@@ -173,23 +172,17 @@ const CONTENT_TREE_GQL = `query($language: String!) {
     item(path: "/sitecore/content", language: $language) {
         id name path
         template { name }
+        hasChildren
         children {
-            totalCount
             results {
                 id name path
                 template { name }
+                hasChildren
                 children {
-                    totalCount
                     results {
                         id name path
                         template { name }
-                        children {
-                            totalCount
-                            results {
-                                id name path
-                                template { name }
-                            }
-                        }
+                        hasChildren
                     }
                 }
             }
@@ -201,16 +194,17 @@ const GQL_CHILDREN_QUERY = `query($path: String!, $language: String!) {
     item(path: $path, language: $language) {
         id name path
         template { name }
+        hasChildren
         children {
-            totalCount
             results {
                 id name path
                 template { name }
+                hasChildren
                 children {
-                    totalCount
                     results {
                         id name path
                         template { name }
+                        hasChildren
                     }
                 }
             }
@@ -516,10 +510,9 @@ export function createContentBridgeService(): ContentBridgeService {
 
                 const root = gqlPayload?.item as Record<string, unknown> | undefined;
                 if (root?.children) {
-                    const rootChildren = root.children as Record<string, unknown>;
-                    const results = rootChildren.results as Record<string, unknown>[];
-                    const rootTotalCount = (rootChildren.totalCount as number) ?? 0;
+                    const results = (root.children as Record<string, unknown>).results as Record<string, unknown>[];
                     if (Array.isArray(results)) {
+                        console.log('[ContentBridge] Content children:', results.map((r) => ({ name: r.name, hasChildren: r.hasChildren, hasChildResults: Boolean((r.children as Record<string, unknown>)?.results) })));
                         tree.push({
                             id: (root.id ?? 'content') as string,
                             name: (root.name ?? 'Content') as string,
@@ -527,7 +520,7 @@ export function createContentBridgeService(): ContentBridgeService {
                             template: '',
                             updatedAt: '',
                             dependencies: [],
-                            hasMoreChildren: results.length < rootTotalCount,
+                            hasMoreChildren: Boolean(root.hasChildren),
                             children: results.map((node) => gqlNodeToTreeItem(node)),
                         });
                     }
