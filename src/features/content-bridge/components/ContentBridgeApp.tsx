@@ -283,12 +283,10 @@ export function ContentBridgeApp() {
         }
     };
 
-    const loadChildren = async (nodeId: string, siteId: string, pageId: string) => {
+    const loadChildren = async (nodeId: string, _siteId: string, pageId: string) => {
         setLoadingChildrenIds((current) => new Set(current).add(nodeId));
         try {
-            const children = siteId
-                ? await service.getPageChildren(siteId, pageId, sourceId)
-                : await service.getGraphNodeChildren(pageId, sourceId, selectedLanguage);
+            const children = await service.getGraphNodeChildren(pageId, sourceId, selectedLanguage);
             setTree((current) => updateTreeNodeChildren(current, nodeId, children));
         } catch (err) {
             console.error('Error loading children:', err);

@@ -503,54 +503,6 @@ export function createContentBridgeService(): ContentBridgeService {
             const tree: ContentTreeItem[] = [];
 
             try {
-                const sitesResult = await sdkClient.query('xmc.xmapp.listSites', {
-                    params: { query: { sitecoreContextId: environmentId } },
-                });
-                const sites = unwrapArray<Record<string, unknown>>(sitesResult.data);
-                console.log('[ContentBridge] listSites:', sites.length, 'sites');
-
-                for (const site of sites) {
-                    const siteId = site.id as string;
-                    if (!siteId) continue;
-                    try {
-                        const hier = await sdkClient.query('xmc.xmapp.retrieveSiteHierarchy', {
-                            params: {
-                                path: { siteId },
-                                query: { sitecoreContextId: environmentId },
-                            },
-                        });
-                        const hierData = unwrap<Record<string, unknown>>(hier.data);
-                        console.log('[ContentBridge] retrieveSiteHierarchy:', hierData);
-
-                        const rootPage = hierData?.page as Record<string, unknown> | undefined;
-                        const hierChildren = hierData?.children;
-
-                        if (rootPage) {
-                            const rootItem = pageToTreeItem(rootPage, siteId);
-
-                            if (Array.isArray(hierChildren) && hierChildren.length > 0) {
-                                rootItem.children = (hierChildren as Record<string, unknown>[]).map((child) => {
-                                    const childItem = pageToTreeItem(child, siteId);
-                                    if (child.hasChildren) {
-                                        childItem.hasMoreChildren = true;
-                                    }
-                                    return childItem;
-                                });
-                            } else if (rootPage.hasChildren) {
-                                rootItem.hasMoreChildren = true;
-                            }
-
-                            tree.push(rootItem);
-                        }
-                    } catch (err) {
-                        console.warn(`[ContentBridge] Hierarchy fetch failed for site ${siteId}:`, err);
-                    }
-                }
-            } catch (err) {
-                console.warn('[ContentBridge] listSites failed:', err);
-            }
-
-            try {
                 const gql = await sdkClient.mutate('xmc.preview.graphql', {
                     params: {
                         body: { query: CONTENT_TREE_GQL, variables: { language } },
@@ -575,19 +527,16 @@ export function createContentBridgeService(): ContentBridgeService {
                 if (root?.children) {
                     const results = (root.children as Record<string, unknown>).results as Record<string, unknown>[];
                     if (Array.isArray(results)) {
-                        const contentItems = results.map((node) => gqlNodeToTreeItem(node));
-                        if (contentItems.length > 0) {
-                            tree.push({
-                                id: (root.id ?? 'content') as string,
-                                name: (root.name ?? 'Content') as string,
-                                path: (root.path ?? '/sitecore/content') as string,
-                                template: '',
-                                updatedAt: '',
-                                dependencies: [],
-                                hasMoreChildren: Boolean(root.hasChildren),
-                                children: contentItems,
-                            });
-                        }
+                        tree.push({
+                            id: (root.id ?? 'content') as string,
+                            name: (root.name ?? 'Content') as string,
+                            path: (root.path ?? '/sitecore/content') as string,
+                            template: '',
+                            updatedAt: '',
+                            dependencies: [],
+                            hasMoreChildren: Boolean(root.hasChildren),
+                            children: results.map((node) => gqlNodeToTreeItem(node)),
+                        });
                     }
                 }
 
