@@ -147,7 +147,8 @@ function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
     const childContainer = node.children as Record<string, unknown> | undefined;
     const rawResults = childContainer?.results;
     const children = Array.isArray(rawResults) ? (rawResults as Record<string, unknown>[]).map(gqlNodeToTreeItem) : [];
-    const hasMoreChildren = !children.length && Boolean(node.hasChildren);
+    const total = (childContainer?.total as number) ?? 0;
+    const hasMoreChildren = total > 0 && children.length < total;
 
     return { id, name, path, template: '', updatedAt: '', dependencies: [], children, hasMoreChildren };
 }
@@ -174,23 +175,28 @@ const CONTENT_TREE_GQL = `query($language: String!) {
         id name path
         template { name }
         hasChildren
-        children {
+        children(first: 1000) {
+            total
             results {
                 id name path
                 template { name }
                 hasChildren
-            }
-        }
-    }
-    mediaLibrary: item(path: "/sitecore/media library", language: $language) {
-        id name path
-        template { name }
-        hasChildren
-        children {
-            results {
-                id name path
-                template { name }
-                hasChildren
+                children(first: 1000) {
+                    total
+                    results {
+                        id name path
+                        template { name }
+                        hasChildren
+                        children(first: 1000) {
+                            total
+                            results {
+                                id name path
+                                template { name }
+                                hasChildren
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -201,7 +207,8 @@ const GQL_CHILDREN_QUERY = `query($path: String!, $language: String!) {
         id name path
         template { name }
         hasChildren
-        children {
+        children(first: 1000) {
+            total
             results {
                 id name path
                 template { name }
@@ -525,7 +532,9 @@ export function createContentBridgeService(): ContentBridgeService {
 
                 const root = gqlPayload?.item as Record<string, unknown> | undefined;
                 if (root?.children) {
-                    const results = (root.children as Record<string, unknown>).results as Record<string, unknown>[];
+                    const rootChildren = root.children as Record<string, unknown>;
+                    const results = rootChildren.results as Record<string, unknown>[];
+                    const rootTotal = (rootChildren.total as number) ?? 0;
                     if (Array.isArray(results)) {
                         tree.push({
                             id: (root.id ?? 'content') as string,
@@ -534,25 +543,8 @@ export function createContentBridgeService(): ContentBridgeService {
                             template: '',
                             updatedAt: '',
                             dependencies: [],
-                            hasMoreChildren: Boolean(root.hasChildren),
+                            hasMoreChildren: results.length < rootTotal,
                             children: results.map((node) => gqlNodeToTreeItem(node)),
-                        });
-                    }
-                }
-
-                const ml = gqlPayload?.mediaLibrary as Record<string, unknown> | undefined;
-                if (ml?.children) {
-                    const results = (ml.children as Record<string, unknown>).results as Record<string, unknown>[];
-                    if (Array.isArray(results)) {
-                        tree.push({
-                            id: (ml.id ?? 'media-library') as string,
-                            name: (ml.name ?? 'Media Library') as string,
-                            path: (ml.path ?? '/sitecore/media library') as string,
-                            template: '',
-                            updatedAt: '',
-                            dependencies: [],
-                            hasMoreChildren: Boolean(ml.hasChildren),
-                            children: results.map(gqlNodeToTreeItem),
                         });
                     }
                 }
