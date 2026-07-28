@@ -112,8 +112,6 @@ export function ContentBridgeApp() {
     const [isLoadingData, setIsLoadingData] = useState(true);
     const [treeLoading, setTreeLoading] = useState(false);
     const [loadingChildrenIds, setLoadingChildrenIds] = useState<Set<string>>(new Set());
-    const [languages, setLanguages] = useState<string[]>([]);
-    const [selectedLanguage, setSelectedLanguage] = useState('');
     const [apiError, setApiError] = useState<string | null>(null);
     const [sdkConnected, setSdkConnected] = useState(false);
 
@@ -169,44 +167,14 @@ export function ContentBridgeApp() {
     }, [service, sdkConnected]);
 
     useEffect(() => {
-        if (!sdkConnected || !sourceId) return;
-
-        let cancelled = false;
-
-        const loadLanguages = async () => {
-            try {
-                const langs = await service.getLanguages(sourceId);
-                if (!cancelled) {
-                    setLanguages(langs);
-                    if (!selectedLanguage || !langs.includes(selectedLanguage)) {
-                        setSelectedLanguage(langs[0] ?? 'en');
-                    }
-                }
-            } catch (err) {
-                console.error('Error loading languages:', err);
-                if (!cancelled) {
-                    setLanguages(['en']);
-                    setSelectedLanguage('en');
-                }
-            }
-        };
-
-        loadLanguages();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [service, sdkConnected, sourceId]);
-
-    useEffect(() => {
-        if (!sdkConnected || isLoadingData || !sourceId || !selectedLanguage) return;
+        if (!sdkConnected || isLoadingData || !sourceId) return;
 
         let cancelled = false;
 
         const loadTree = async () => {
             try {
                 setTreeLoading(true);
-                const contentTreeResult = await service.getContentTree(sourceId, selectedLanguage);
+                const contentTreeResult = await service.getContentTree(sourceId);
                 if (!cancelled) {
                     setTree(contentTreeResult);
                     setExpandedIds(new Set(contentTreeResult.map((item) => item.id)));
@@ -227,7 +195,7 @@ export function ContentBridgeApp() {
         return () => {
             cancelled = true;
         };
-    }, [service, sdkConnected, isLoadingData, sourceId, selectedLanguage]);
+    }, [service, sdkConnected, isLoadingData, sourceId]);
 
     useEffect(() => {
         if (!sdkConnected || isLoadingData) return;
@@ -286,7 +254,7 @@ export function ContentBridgeApp() {
     const loadChildren = async (nodeId: string, itemPath: string) => {
         setLoadingChildrenIds((current) => new Set(current).add(nodeId));
         try {
-            const children = await service.getGraphNodeChildren(itemPath, sourceId, selectedLanguage);
+            const children = await service.getGraphNodeChildren(itemPath, sourceId);
             setTree((current) => updateTreeNodeChildren(current, nodeId, children));
         } catch (err) {
             console.error('Error loading children:', err);
@@ -429,9 +397,6 @@ export function ContentBridgeApp() {
                         isCreating={isCreating}
                         selectedItemIds={selectedItemIds}
                         selectedItems={selectedItems}
-                        languages={languages}
-                        selectedLanguage={selectedLanguage}
-                        setSelectedLanguage={setSelectedLanguage}
                         loadingChildrenIds={loadingChildrenIds}
                         setDestinationId={setDestinationId}
                         setSourceId={setSourceId}
@@ -547,9 +512,6 @@ function WizardPage({
     isCreating,
     selectedItemIds,
     selectedItems,
-    languages,
-    selectedLanguage,
-    setSelectedLanguage,
     loadingChildrenIds,
     setDestinationId,
     setSourceId,
@@ -571,9 +533,6 @@ function WizardPage({
     isCreating: boolean;
     selectedItemIds: string[];
     selectedItems: ContentTreeItem[];
-    languages: string[];
-    selectedLanguage: string;
-    setSelectedLanguage: (lang: string) => void;
     loadingChildrenIds: Set<string>;
     setDestinationId: (id: string) => void;
     setSourceId: (id: string) => void;
@@ -611,16 +570,6 @@ function WizardPage({
                     </label>
                     <EnvironmentSelect environments={environments} label="Source environment" value={sourceId} onChange={setSourceId} />
                     <EnvironmentSelect environments={environments} label="Destination environment" value={destinationId} onChange={setDestinationId} />
-                    {languages.length > 1 && (
-                        <label>
-                            Language
-                            <select value={selectedLanguage} onChange={(event) => setSelectedLanguage(event.target.value)}>
-                                {languages.map((lang) => (
-                                    <option key={lang} value={lang}>{lang}</option>
-                                ))}
-                            </select>
-                        </label>
-                    )}
                     {sourceId && destinationId && sourceId === destinationId && (
                         <div className={styles.hintMessage}>
                             <AlertTriangle size={14} aria-hidden />

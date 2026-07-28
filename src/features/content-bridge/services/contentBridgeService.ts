@@ -4,9 +4,9 @@ import type { ContentEnvironment, ContentTreeItem, MergeStrategy, TransferDraft,
 
 export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
-    getContentTree(environmentId: string, language: string): Promise<ContentTreeItem[]>;
+    getContentTree(environmentId: string): Promise<ContentTreeItem[]>;
     getPageChildren(siteId: string, pageId: string, environmentId: string): Promise<ContentTreeItem[]>;
-    getGraphNodeChildren(itemPath: string, environmentId: string, language: string): Promise<ContentTreeItem[]>;
+    getGraphNodeChildren(itemPath: string, environmentId: string): Promise<ContentTreeItem[]>;
     getLanguages(environmentId: string): Promise<string[]>;
     createContentTransfer(draft: TransferDraft): Promise<TransferRecord>;
     getTransfers(): Promise<TransferRecord[]>;
@@ -497,7 +497,7 @@ export function createContentBridgeService(): ContentBridgeService {
             }
         },
 
-        async getContentTree(environmentId, language = 'en') {
+        async getContentTree(environmentId) {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
             const tree: ContentTreeItem[] = [];
@@ -505,7 +505,7 @@ export function createContentBridgeService(): ContentBridgeService {
             try {
                 const gql = await sdkClient.mutate('xmc.preview.graphql', {
                     params: {
-                        body: { query: CONTENT_TREE_GQL, variables: { language } },
+                        body: { query: CONTENT_TREE_GQL, variables: { language: 'en' } },
                         query: { sitecoreContextId: environmentId },
                     },
                 });
@@ -597,7 +597,7 @@ export function createContentBridgeService(): ContentBridgeService {
             }
         },
 
-        async getGraphNodeChildren(itemPath, environmentId, language = 'en') {
+        async getGraphNodeChildren(itemPath, environmentId) {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
             try {
@@ -605,7 +605,7 @@ export function createContentBridgeService(): ContentBridgeService {
                     params: {
                         body: {
                             query: GQL_CHILDREN_QUERY,
-                            variables: { path: itemPath, language },
+                            variables: { path: itemPath, language: 'en' },
                         },
                         query: { sitecoreContextId: environmentId },
                     },
