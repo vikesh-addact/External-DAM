@@ -540,9 +540,27 @@ export function createContentBridgeService(): ContentBridgeService {
                         query: { sitecoreContextId: environmentId },
                     },
                 });
-                const gqlPayload = unwrap<Record<string, unknown>>(gql);
+                const gqlRaw = gql as unknown as Record<string, unknown>;
+                console.log('[ContentBridge] GraphQL raw response keys:', Object.keys(gqlRaw));
+
+                const gqlData = gqlRaw?.data as Record<string, unknown> | undefined;
+                let gqlPayload: Record<string, unknown> | undefined = gqlData;
+
+                if (gqlData && 'item' in gqlData) {
+                    gqlPayload = gqlData;
+                } else if (gqlData && typeof gqlData === 'object' && 'data' in gqlData && gqlData.data && typeof gqlData.data === 'object') {
+                    gqlPayload = gqlData.data as Record<string, unknown>;
+                }
+
+                console.log('[ContentBridge] GraphQL payload keys:', gqlPayload ? Object.keys(gqlPayload) : 'null');
+
+                if (gqlRaw?.errors) {
+                    console.warn('[ContentBridge] GraphQL errors:', gqlRaw.errors);
+                }
 
                 const root = gqlPayload?.item as Record<string, unknown> | undefined;
+                console.log('[ContentBridge] Content root:', root ? { id: root.id, path: root.path, hasChildren: root.hasChildren, hasChildrenResults: Boolean((root.children as Record<string, unknown>)?.results) } : 'null');
+
                 if (root?.children) {
                     const results = (root.children as Record<string, unknown>).results as Record<string, unknown>[];
                     if (Array.isArray(results)) {
@@ -563,6 +581,8 @@ export function createContentBridgeService(): ContentBridgeService {
                 }
 
                 const ml = gqlPayload?.mediaLibrary as Record<string, unknown> | undefined;
+                console.log('[ContentBridge] Media Library root:', ml ? { id: ml.id, path: ml.path, hasChildren: ml.hasChildren, hasChildrenResults: Boolean((ml.children as Record<string, unknown>)?.results) } : 'null');
+
                 if (ml?.children) {
                     const results = (ml.children as Record<string, unknown>).results as Record<string, unknown>[];
                     if (Array.isArray(results)) {
@@ -632,7 +652,16 @@ export function createContentBridgeService(): ContentBridgeService {
                         query: { sitecoreContextId: environmentId },
                     },
                 });
-                const gqlPayload = unwrap<Record<string, unknown>>(gql);
+                const gqlRaw = gql as unknown as Record<string, unknown>;
+                const gqlData = gqlRaw?.data as Record<string, unknown> | undefined;
+                let gqlPayload: Record<string, unknown> | undefined = gqlData;
+
+                if (gqlData && 'item' in gqlData) {
+                    gqlPayload = gqlData;
+                } else if (gqlData && typeof gqlData === 'object' && 'data' in gqlData && gqlData.data && typeof gqlData.data === 'object') {
+                    gqlPayload = gqlData.data as Record<string, unknown>;
+                }
+
                 const item = gqlPayload?.item as Record<string, unknown> | undefined;
                 if (!item?.children) return [];
 
