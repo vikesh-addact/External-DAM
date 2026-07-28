@@ -4,9 +4,10 @@ import type { ContentEnvironment, ContentTreeItem, MergeStrategy, TransferDraft,
 
 export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
-    getContentTree(environmentId: string): Promise<ContentTreeItem[]>;
+    getContentTree(environmentId: string, language: string): Promise<ContentTreeItem[]>;
     getPageChildren(siteId: string, pageId: string, environmentId: string): Promise<ContentTreeItem[]>;
-    getGraphNodeChildren(nodeId: string, environmentId: string): Promise<ContentTreeItem[]>;
+    getGraphNodeChildren(nodeId: string, environmentId: string, language: string): Promise<ContentTreeItem[]>;
+    getLanguages(environmentId: string): Promise<string[]>;
     createContentTransfer(draft: TransferDraft): Promise<TransferRecord>;
     getTransfers(): Promise<TransferRecord[]>;
     retryTransfer(id: string): Promise<TransferRecord>;
@@ -168,8 +169,8 @@ function progressFor(status: TransferStatus): number {
     return 5;
 }
 
-const CONTENT_TREE_GQL = `query {
-    item(path: "/sitecore/content") {
+const CONTENT_TREE_GQL = `query($language: String!) {
+    item(path: "/sitecore/content", language: $language) {
         id name path
         template { name }
         hasChildren
@@ -181,7 +182,7 @@ const CONTENT_TREE_GQL = `query {
             }
         }
     }
-    mediaLibrary: item(path: "/sitecore/media library") {
+    mediaLibrary: item(path: "/sitecore/media library", language: $language) {
         id name path
         template { name }
         hasChildren
@@ -195,8 +196,8 @@ const CONTENT_TREE_GQL = `query {
     }
 }`;
 
-const GQL_CHILDREN_QUERY = `query($id: String!) {
-    item(id: $id) {
+const GQL_CHILDREN_QUERY = `query($id: String!, $language: String!) {
+    item(id: $id, language: $language) {
         id name path
         template { name }
         hasChildren
@@ -480,7 +481,23 @@ export function createContentBridgeService(): ContentBridgeService {
             return envs;
         },
 
-        async getContentTree(environmentId) {
+        async getLanguages(environmentId) {
+            if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
+            try {
+                const res = await sdkClient.query('xmc.xmapp.listLanguages', {
+                    params: { query: { sitecoreContextId: environmentId } },
+                });
+                const raw = unwrapArray<Record<string, unknown>>(res.data);
+                const codes = raw.map((l) => (l.iso ?? l.code ?? l.languageCode ?? '') as string).filter(Boolean);
+                console.log('[ContentBridge] Languages:', codes);
+                return codes.length > 0 ? codes : ['en'];
+            } catch (err) {
+                console.warn('[ContentBridge] listLanguages failed, defaulting to en:', err);
+                return ['en'];
+            }
+        },
+
+        async getContentTree(environmentId, language = 'en') {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
             const tree: ContentTreeItem[] = [];
@@ -536,7 +553,7 @@ export function createContentBridgeService(): ContentBridgeService {
             try {
                 const gql = await sdkClient.mutate('xmc.preview.graphql', {
                     params: {
-                        body: { query: CONTENT_TREE_GQL },
+                        body: { query: CONTENT_TREE_GQL, variables: { language } },
                         query: { sitecoreContextId: environmentId },
                     },
                 });
@@ -631,7 +648,7 @@ export function createContentBridgeService(): ContentBridgeService {
             }
         },
 
-        async getGraphNodeChildren(nodeId, environmentId) {
+        async getGraphNodeChildren(nodeId, environmentId, language = 'en') {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
             try {
@@ -639,7 +656,7 @@ export function createContentBridgeService(): ContentBridgeService {
                     params: {
                         body: {
                             query: GQL_CHILDREN_QUERY,
-                            variables: { id: nodeId },
+                            variables: { id: nodeId, language },
                         },
                         query: { sitecoreContextId: environmentId },
                     },
