@@ -168,8 +168,8 @@ function progressFor(status: TransferStatus): number {
     return 5;
 }
 
-const CONTENT_TREE_GQL = `query {
-    item(path: "/sitecore/content") {
+const CONTENT_TREE_GQL = `query($language: String!) {
+    item(path: "/sitecore/content", language: $language) {
         id name path
         template { name }
         hasChildren
@@ -183,8 +183,8 @@ const CONTENT_TREE_GQL = `query {
     }
 }`;
 
-const GQL_CHILDREN_QUERY = `query($path: String!) {
-    item(path: $path) {
+const GQL_CHILDREN_QUERY = `query($path: String!, $language: String!) {
+    item(path: $path, language: $language) {
         id name path
         template { name }
         hasChildren
@@ -474,9 +474,9 @@ export function createContentBridgeService(): ContentBridgeService {
             const tree: ContentTreeItem[] = [];
 
             try {
-                const gql = await sdkClient.mutate('xmc.authoring.graphql', {
+                const gql = await sdkClient.mutate('xmc.preview.graphql', {
                     params: {
-                        body: { query: CONTENT_TREE_GQL },
+                        body: { query: CONTENT_TREE_GQL, variables: { language: 'en' } },
                         query: { sitecoreContextId: environmentId },
                     },
                 });
@@ -555,11 +555,11 @@ export function createContentBridgeService(): ContentBridgeService {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
             try {
-                const gql = await sdkClient.mutate('xmc.authoring.graphql', {
+                const gql = await sdkClient.mutate('xmc.preview.graphql', {
                     params: {
                         body: {
                             query: GQL_CHILDREN_QUERY,
-                            variables: { path: itemPath },
+                            variables: { path: itemPath, language: 'en' },
                         },
                         query: { sitecoreContextId: environmentId },
                     },
