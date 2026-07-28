@@ -6,6 +6,7 @@ export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
     getContentTree(environmentId: string): Promise<ContentTreeItem[]>;
     getPageChildren(siteId: string, pageId: string, environmentId: string): Promise<ContentTreeItem[]>;
+    getGraphNodeChildren(nodeId: string, environmentId: string): Promise<ContentTreeItem[]>;
     createContentTransfer(draft: TransferDraft): Promise<TransferRecord>;
     getTransfers(): Promise<TransferRecord[]>;
     retryTransfer(id: string): Promise<TransferRecord>;
@@ -145,8 +146,9 @@ function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
     const childContainer = node.children as Record<string, unknown> | undefined;
     const rawResults = childContainer?.results;
     const children = Array.isArray(rawResults) ? (rawResults as Record<string, unknown>[]).map(gqlNodeToTreeItem) : [];
+    const hasMoreChildren = !children.length && Boolean(node.hasChildren);
 
-    return { id, name, path, template: '', updatedAt: '', dependencies: [], children };
+    return { id, name, path, template: '', updatedAt: '', dependencies: [], children, hasMoreChildren };
 }
 
 function mapState(s: string): TransferStatus {
@@ -170,50 +172,39 @@ const CONTENT_TREE_GQL = `query {
     item(path: "/sitecore/content") {
         id name path
         template { name }
+        hasChildren
         children {
             results {
                 id name path
                 template { name }
                 hasChildren
-                children {
-                    results {
-                        id name path
-                        template { name }
-                        hasChildren
-                        children {
-                            results {
-                                id name path
-                                template { name }
-                                hasChildren
-                                children {
-                                    results {
-                                        id name path
-                                        template { name }
-                                        hasChildren
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
     }
     mediaLibrary: item(path: "/sitecore/media library") {
         id name path
         template { name }
+        hasChildren
         children {
             results {
                 id name path
                 template { name }
                 hasChildren
-                children {
-                    results {
-                        id name path
-                        template { name }
-                        hasChildren
-                    }
-                }
+            }
+        }
+    }
+}`;
+
+const GQL_CHILDREN_QUERY = `query($id: String!) {
+    item(id: $id) {
+        id name path
+        template { name }
+        hasChildren
+        children {
+            results {
+                id name path
+                template { name }
+                hasChildren
             }
         }
     }
@@ -539,43 +530,56 @@ export function createContentBridgeService(): ContentBridgeService {
                     }
                 }
             } catch (err) {
-                console.warn('[ContentBridge] listSites failed, trying GraphQL fallback:', err);
+                console.warn('[ContentBridge] listSites failed:', err);
             }
 
-            if (tree.length === 0) {
-                try {
-                    const gql = await sdkClient.mutate('xmc.authoring.graphql', {
-                        params: {
-                            body: { query: CONTENT_TREE_GQL },
-                            query: { sitecoreContextId: environmentId },
-                        },
-                    });
-                    const gqlPayload = unwrap<Record<string, unknown>>(gql);
-                    const root = gqlPayload?.item as Record<string, unknown> | undefined;
-                    if (root?.children) {
-                        const results = (root.children as Record<string, unknown>).results as Record<string, unknown>[];
-                        if (Array.isArray(results)) {
-                            tree.push(...results.map(gqlNodeToTreeItem));
-                        }
-                    }
-                    const ml = gqlPayload?.mediaLibrary as Record<string, unknown> | undefined;
-                    if (ml?.children) {
-                        const results = (ml.children as Record<string, unknown>).results as Record<string, unknown>[];
-                        if (Array.isArray(results)) {
+            try {
+                const gql = await sdkClient.mutate('xmc.authoring.graphql', {
+                    params: {
+                        body: { query: CONTENT_TREE_GQL },
+                        query: { sitecoreContextId: environmentId },
+                    },
+                });
+                const gqlPayload = unwrap<Record<string, unknown>>(gql);
+
+                const root = gqlPayload?.item as Record<string, unknown> | undefined;
+                if (root?.children) {
+                    const results = (root.children as Record<string, unknown>).results as Record<string, unknown>[];
+                    if (Array.isArray(results)) {
+                        const contentItems = results.map((node) => gqlNodeToTreeItem(node));
+                        if (contentItems.length > 0) {
                             tree.push({
-                                id: (ml.id ?? 'media-library') as string,
-                                name: (ml.name ?? 'Media Library') as string,
-                                path: (ml.path ?? '/sitecore/media library') as string,
+                                id: (root.id ?? 'content') as string,
+                                name: (root.name ?? 'Content') as string,
+                                path: (root.path ?? '/sitecore/content') as string,
                                 template: '',
                                 updatedAt: '',
                                 dependencies: [],
-                                children: results.map(gqlNodeToTreeItem),
+                                hasMoreChildren: Boolean(root.hasChildren),
+                                children: contentItems,
                             });
                         }
                     }
-                } catch (err) {
-                    console.error('[ContentBridge] GraphQL content tree fallback failed:', err);
                 }
+
+                const ml = gqlPayload?.mediaLibrary as Record<string, unknown> | undefined;
+                if (ml?.children) {
+                    const results = (ml.children as Record<string, unknown>).results as Record<string, unknown>[];
+                    if (Array.isArray(results)) {
+                        tree.push({
+                            id: (ml.id ?? 'media-library') as string,
+                            name: (ml.name ?? 'Media Library') as string,
+                            path: (ml.path ?? '/sitecore/media library') as string,
+                            template: '',
+                            updatedAt: '',
+                            dependencies: [],
+                            hasMoreChildren: Boolean(ml.hasChildren),
+                            children: results.map(gqlNodeToTreeItem),
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('[ContentBridge] GraphQL content/media fetch failed:', err);
             }
 
             console.log('[ContentBridge] Final content tree:', tree);
@@ -611,6 +615,35 @@ export function createContentBridgeService(): ContentBridgeService {
                 });
             } catch (err) {
                 console.warn(`[ContentBridge] getPageChildren failed for page ${pageId}:`, err);
+                return [];
+            }
+        },
+
+        async getGraphNodeChildren(nodeId, environmentId) {
+            if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
+
+            try {
+                const gql = await sdkClient.mutate('xmc.authoring.graphql', {
+                    params: {
+                        body: {
+                            query: GQL_CHILDREN_QUERY,
+                            variables: { id: nodeId },
+                        },
+                        query: { sitecoreContextId: environmentId },
+                    },
+                });
+                const gqlPayload = unwrap<Record<string, unknown>>(gql);
+                const item = gqlPayload?.item as Record<string, unknown> | undefined;
+                if (!item?.children) return [];
+
+                const results = (item.children as Record<string, unknown>).results as Record<string, unknown>[];
+                console.log(`[ContentBridge] getGraphNodeChildren nodeId=${nodeId} → ${results?.length ?? 0} items`);
+
+                if (!Array.isArray(results)) return [];
+
+                return results.map((node) => gqlNodeToTreeItem(node));
+            } catch (err) {
+                console.warn(`[ContentBridge] getGraphNodeChildren failed for node ${nodeId}:`, err);
                 return [];
             }
         },
