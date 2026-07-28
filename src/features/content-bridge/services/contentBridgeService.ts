@@ -149,10 +149,6 @@ function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
     const total = (childContainer?.total as number) ?? 0;
     const hasMoreChildren = children.length < total;
 
-    if (children.length > 0 || total > 0) {
-        console.log(`[ContentBridge] Node "${name}" path=${path} children=${children.length} total=${total} hasMore=${hasMoreChildren}`);
-    }
-
     return { id, name, path, template: '', updatedAt: '', dependencies: [], children, hasMoreChildren };
 }
 

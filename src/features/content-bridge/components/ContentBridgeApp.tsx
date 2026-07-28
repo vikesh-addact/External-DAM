@@ -890,7 +890,7 @@ function TreeNode({
     toggleExpand: (id: string) => void;
     loadingChildrenIds: Set<string>;
 }) {
-    const hasChildren = Boolean(item.children?.length || item.hasMoreChildren || !expandedIds.has(item.id));
+    const hasChildren = Boolean(item.children?.length || item.hasMoreChildren);
     const isExpanded = expandedIds.has(item.id);
     const isLoadingChildren = loadingChildrenIds.has(item.id);
 
