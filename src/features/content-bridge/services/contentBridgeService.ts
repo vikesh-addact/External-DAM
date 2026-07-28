@@ -534,33 +534,27 @@ export function createContentBridgeService(): ContentBridgeService {
             }
 
             try {
-                const gql = await sdkClient.mutate('xmc.authoring.graphql', {
+                const gql = await sdkClient.mutate('xmc.preview.graphql', {
                     params: {
                         body: { query: CONTENT_TREE_GQL },
                         query: { sitecoreContextId: environmentId },
                     },
                 });
                 const gqlRaw = gql as unknown as Record<string, unknown>;
-                console.log('[ContentBridge] GraphQL raw response keys:', Object.keys(gqlRaw));
-
                 const gqlData = gqlRaw?.data as Record<string, unknown> | undefined;
-                let gqlPayload: Record<string, unknown> | undefined = gqlData;
+                let gqlPayload: Record<string, unknown> | undefined;
 
                 if (gqlData && 'item' in gqlData) {
                     gqlPayload = gqlData;
-                } else if (gqlData && typeof gqlData === 'object' && 'data' in gqlData && gqlData.data && typeof gqlData.data === 'object') {
+                } else if (gqlData && gqlData.data && typeof gqlData.data === 'object' && 'item' in (gqlData.data as Record<string, unknown>)) {
                     gqlPayload = gqlData.data as Record<string, unknown>;
                 }
 
-                console.log('[ContentBridge] GraphQL payload keys:', gqlPayload ? Object.keys(gqlPayload) : 'null');
-
-                if (gqlRaw?.errors) {
-                    console.warn('[ContentBridge] GraphQL errors:', gqlRaw.errors);
+                if (gqlData?.errors) {
+                    console.warn('[ContentBridge] Preview GraphQL errors:', gqlData.errors);
                 }
 
                 const root = gqlPayload?.item as Record<string, unknown> | undefined;
-                console.log('[ContentBridge] Content root:', root ? { id: root.id, path: root.path, hasChildren: root.hasChildren, hasChildrenResults: Boolean((root.children as Record<string, unknown>)?.results) } : 'null');
-
                 if (root?.children) {
                     const results = (root.children as Record<string, unknown>).results as Record<string, unknown>[];
                     if (Array.isArray(results)) {
@@ -581,8 +575,6 @@ export function createContentBridgeService(): ContentBridgeService {
                 }
 
                 const ml = gqlPayload?.mediaLibrary as Record<string, unknown> | undefined;
-                console.log('[ContentBridge] Media Library root:', ml ? { id: ml.id, path: ml.path, hasChildren: ml.hasChildren, hasChildrenResults: Boolean((ml.children as Record<string, unknown>)?.results) } : 'null');
-
                 if (ml?.children) {
                     const results = (ml.children as Record<string, unknown>).results as Record<string, unknown>[];
                     if (Array.isArray(results)) {
@@ -643,7 +635,7 @@ export function createContentBridgeService(): ContentBridgeService {
             if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
 
             try {
-                const gql = await sdkClient.mutate('xmc.authoring.graphql', {
+                const gql = await sdkClient.mutate('xmc.preview.graphql', {
                     params: {
                         body: {
                             query: GQL_CHILDREN_QUERY,
@@ -654,11 +646,11 @@ export function createContentBridgeService(): ContentBridgeService {
                 });
                 const gqlRaw = gql as unknown as Record<string, unknown>;
                 const gqlData = gqlRaw?.data as Record<string, unknown> | undefined;
-                let gqlPayload: Record<string, unknown> | undefined = gqlData;
+                let gqlPayload: Record<string, unknown> | undefined;
 
                 if (gqlData && 'item' in gqlData) {
                     gqlPayload = gqlData;
-                } else if (gqlData && typeof gqlData === 'object' && 'data' in gqlData && gqlData.data && typeof gqlData.data === 'object') {
+                } else if (gqlData && gqlData.data && typeof gqlData.data === 'object' && 'item' in (gqlData.data as Record<string, unknown>)) {
                     gqlPayload = gqlData.data as Record<string, unknown>;
                 }
 
