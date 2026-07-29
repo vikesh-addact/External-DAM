@@ -616,9 +616,7 @@ function WizardPage({
                         <Loader2 className={styles.spin} size={18} aria-hidden />
                         Loading content tree...
                     </div>
-                ) : !sourceId ? (
-                    <div className={styles.emptyState}>Select a source environment above to browse content.</div>
-                ) : (
+                ) : !sourceId ? null : (
                     <div className={styles.treeList}>
                         <div className={styles.treeSection}>
                             <div className={styles.treeSectionHeader}>
