@@ -779,7 +779,10 @@ function DetailsPage({
     retryTransfer: (id: string) => void;
     transfer: TransferRecord;
 }) {
-    const items = transfer.selectedItemIds.map((id) => allItems.find((item) => item.id === id)).filter(Boolean) as ContentTreeItem[];
+    const items = transfer.selectedItemIds.map((id) => {
+        const found = allItems.find((item) => item.id === id);
+        return found ?? { id, name: id, path: '', template: '', updatedAt: '', dependencies: [] };
+    });
 
     return (
         <div className={styles.detailsGrid}>
