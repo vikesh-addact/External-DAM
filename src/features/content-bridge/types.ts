@@ -38,6 +38,7 @@ export interface TransferRecord {
   sourceEnvironmentId: string;
   destinationEnvironmentId: string;
   selectedItemIds: string[];
+  selectedItemDetails?: { id: string; name: string; path: string }[];
   strategy: MergeStrategy;
   status: TransferStatus;
   progress: number;
@@ -66,5 +67,6 @@ export interface TransferDraft {
   sourceEnvironmentId: string;
   destinationEnvironmentId: string;
   selectedItemIds: string[];
+  selectedItemDetails?: { id: string; name: string; path: string }[];
   strategy: MergeStrategy;
 }

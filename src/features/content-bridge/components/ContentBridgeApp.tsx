@@ -283,11 +283,13 @@ export function ContentBridgeApp() {
         setIsCreating(true);
         setApiError(null);
         try {
+            const selectedItemDetails = selectedItems.map(({ id, name, path }) => ({ id, name, path }));
             const created = await service.createContentTransfer({
                 name: transferName,
                 sourceEnvironmentId: sourceId,
                 destinationEnvironmentId: destinationId,
                 selectedItemIds,
+                selectedItemDetails,
                 strategy,
             });
             setTransfers((current) => [created, ...current]);
@@ -779,10 +781,12 @@ function DetailsPage({
     retryTransfer: (id: string) => void;
     transfer: TransferRecord;
 }) {
-    const items = transfer.selectedItemIds.map((id) => {
-        const found = allItems.find((item) => item.id === id);
-        return found ?? { id, name: id, path: '', template: '', updatedAt: '', dependencies: [] };
-    });
+    const items: { id: string; name: string; path: string }[] = transfer.selectedItemDetails?.length
+        ? transfer.selectedItemDetails
+        : transfer.selectedItemIds.map((id) => {
+              const found = allItems.find((item) => item.id === id);
+              return found ?? { id, name: id, path: '' };
+          });
 
     return (
         <div className={styles.detailsGrid}>

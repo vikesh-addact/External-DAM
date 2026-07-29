@@ -720,6 +720,7 @@ export function createContentBridgeService(): ContentBridgeService {
                 sourceEnvironmentId: draft.sourceEnvironmentId,
                 destinationEnvironmentId: draft.destinationEnvironmentId,
                 selectedItemIds: draft.selectedItemIds,
+                selectedItemDetails: draft.selectedItemDetails,
                 strategy: draft.strategy,
                 status: 'creating',
                 progress: 5,
