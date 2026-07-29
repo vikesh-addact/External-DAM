@@ -291,7 +291,7 @@ async function applyTransfer(rec: TransferRecord) {
                         });
                         if (saveRes && typeof saveRes === 'object' && 'error' in saveRes && saveRes.error) {
                             const errBody = saveRes.error as Record<string, unknown>;
-                            const errMsg = errBody?.Error ?? errBody?.message ?? String(errBody);
+                            const errMsg = String(errBody?.Error ?? errBody?.message ?? '');
                             if (attempt === 0 && errMsg.includes('isMedia')) {
                                 isMedia = true;
                                 continue;
