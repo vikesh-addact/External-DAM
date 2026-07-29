@@ -245,16 +245,11 @@ export function ContentBridgeApp() {
             return;
         }
 
-        let allDescendants: ContentTreeItem[] = item.children ?? [];
+        const loadedDescendants = await service.getDescendants(item.path, sourceId);
+        const setTreeFn = findItem(tree, item.id) ? setTree : setMediaTree;
+        setTreeFn((current) => updateTreeNodeChildren(current, item.id, loadedDescendants));
 
-        if (item.hasMoreChildren) {
-            const loadedDescendants = await service.getDescendants(item.path, sourceId);
-            const setTreeFn = findItem(tree, item.id) ? setTree : setMediaTree;
-            setTreeFn((current) => updateTreeNodeChildren(current, item.id, loadedDescendants));
-            allDescendants = loadedDescendants;
-        }
-
-        const virtualRoot: ContentTreeItem = { ...item, children: allDescendants };
+        const virtualRoot: ContentTreeItem = { ...item, children: loadedDescendants };
         const ids = collectItemIds(virtualRoot);
 
         setSelectedItemIds((current) => {
