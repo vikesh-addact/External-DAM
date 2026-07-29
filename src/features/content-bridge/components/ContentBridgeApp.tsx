@@ -115,6 +115,7 @@ export function ContentBridgeApp() {
     const [mediaTree, setMediaTree] = useState<ContentTreeItem[]>([]);
     const [mediaTreeLoading, setMediaTreeLoading] = useState(false);
     const [loadingChildrenIds, setLoadingChildrenIds] = useState<Set<string>>(new Set());
+    const [loadingSubtreeIds, setLoadingSubtreeIds] = useState<Set<string>>(new Set());
     const [apiError, setApiError] = useState<string | null>(null);
     const [sdkConnected, setSdkConnected] = useState(false);
 
@@ -245,20 +246,29 @@ export function ContentBridgeApp() {
             return;
         }
 
-        const loadedDescendants = await service.getDescendants(item.path, sourceId);
-        const setTreeFn = findItem(tree, item.id) ? setTree : setMediaTree;
-        setTreeFn((current) => updateTreeNodeChildren(current, item.id, loadedDescendants));
+        setLoadingSubtreeIds((current) => new Set(current).add(item.id));
+        try {
+            const loadedDescendants = await service.getDescendants(item.path, sourceId);
+            const setTreeFn = findItem(tree, item.id) ? setTree : setMediaTree;
+            setTreeFn((current) => updateTreeNodeChildren(current, item.id, loadedDescendants));
 
-        const virtualRoot: ContentTreeItem = { ...item, children: loadedDescendants };
-        const ids = collectItemIds(virtualRoot);
+            const virtualRoot: ContentTreeItem = { ...item, children: loadedDescendants };
+            const ids = collectItemIds(virtualRoot);
 
-        setSelectedItemIds((current) => {
-            const allSelected = ids.every((id) => current.includes(id));
-            if (allSelected) {
-                return current.filter((id) => !ids.includes(id));
-            }
-            return Array.from(new Set([...current, ...ids]));
-        });
+            setSelectedItemIds((current) => {
+                const allSelected = ids.every((id) => current.includes(id));
+                if (allSelected) {
+                    return current.filter((id) => !ids.includes(id));
+                }
+                return Array.from(new Set([...current, ...ids]));
+            });
+        } finally {
+            setLoadingSubtreeIds((current) => {
+                const next = new Set(current);
+                next.delete(item.id);
+                return next;
+            });
+        }
     };
 
     const toggleExpand = (id: string) => {
@@ -427,6 +437,7 @@ export function ContentBridgeApp() {
                         selectedItemIds={selectedItemIds}
                         selectedItems={selectedItems}
                         loadingChildrenIds={loadingChildrenIds}
+                        loadingSubtreeIds={loadingSubtreeIds}
                         setDestinationId={setDestinationId}
                         setSourceId={setSourceId}
                         setStrategy={setStrategy}
@@ -544,6 +555,7 @@ function WizardPage({
     selectedItemIds,
     selectedItems,
     loadingChildrenIds,
+    loadingSubtreeIds,
     setDestinationId,
     setSourceId,
     setStrategy,
@@ -567,6 +579,7 @@ function WizardPage({
     selectedItemIds: string[];
     selectedItems: ContentTreeItem[];
     loadingChildrenIds: Set<string>;
+    loadingSubtreeIds: Set<string>;
     setDestinationId: (id: string) => void;
     setSourceId: (id: string) => void;
     setStrategy: (strategy: MergeStrategy) => void;
@@ -650,6 +663,7 @@ function WizardPage({
                                         expandedIds={expandedIds}
                                         toggleExpand={toggleExpand}
                                         loadingChildrenIds={loadingChildrenIds}
+                                        loadingSubtreeIds={loadingSubtreeIds}
                                     />
                                 ))}
                             </div>
@@ -669,6 +683,7 @@ function WizardPage({
                                         expandedIds={expandedIds}
                                         toggleExpand={toggleExpand}
                                         loadingChildrenIds={loadingChildrenIds}
+                                        loadingSubtreeIds={loadingSubtreeIds}
                                     />
                                 ))}
                             </div>
@@ -947,6 +962,7 @@ function TreeNode({
     expandedIds,
     toggleExpand,
     loadingChildrenIds,
+    loadingSubtreeIds,
 }: {
     item: ContentTreeItem;
     selectedItemIds: string[];
@@ -954,10 +970,12 @@ function TreeNode({
     expandedIds: Set<string>;
     toggleExpand: (id: string) => void;
     loadingChildrenIds: Set<string>;
+    loadingSubtreeIds: Set<string>;
 }) {
     const hasChildren = Boolean(item.children?.length || item.hasMoreChildren);
     const isExpanded = expandedIds.has(item.id);
     const isLoadingChildren = loadingChildrenIds.has(item.id);
+    const isLoadingSubtree = loadingSubtreeIds.has(item.id);
 
     return (
         <div className={styles.treeNode}>
@@ -979,7 +997,7 @@ function TreeNode({
                     <span>{item.name}</span>
                 </label>
                 <button className={styles.iconButton} onClick={() => toggleItem(item, true)} title="Select subtree" type="button">
-                    <FolderTree size={15} aria-hidden />
+                    {isLoadingSubtree ? <Loader2 size={15} className={styles.spin} aria-hidden /> : <FolderTree size={15} aria-hidden />}
                 </button>
             </div>
             {hasChildren && isExpanded && (
@@ -999,6 +1017,7 @@ function TreeNode({
                                 expandedIds={expandedIds}
                                 toggleExpand={toggleExpand}
                                 loadingChildrenIds={loadingChildrenIds}
+                                loadingSubtreeIds={loadingSubtreeIds}
                             />
                         ))
                     )}

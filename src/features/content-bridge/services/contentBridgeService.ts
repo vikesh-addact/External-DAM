@@ -679,13 +679,19 @@ export function createContentBridgeService(): ContentBridgeService {
 
         async getDescendants(itemPath: string, environmentId: string): Promise<ContentTreeItem[]> {
             const children = await this.getGraphNodeChildren(itemPath, environmentId);
-            for (const child of children) {
-                if (child.hasMoreChildren) {
-                    const grandChildren = await this.getDescendants(child.path, environmentId);
-                    child.children = grandChildren;
-                    child.hasMoreChildren = false;
+            const loadDeeper = async (nodes: ContentTreeItem[]) => {
+                for (const node of nodes) {
+                    if (node.hasMoreChildren) {
+                        const descendants = await this.getDescendants(node.path, environmentId);
+                        node.children = descendants;
+                        node.hasMoreChildren = false;
+                    }
+                    if (node.children?.length) {
+                        await loadDeeper(node.children);
+                    }
                 }
-            }
+            };
+            await loadDeeper(children);
             return children;
         },
 
