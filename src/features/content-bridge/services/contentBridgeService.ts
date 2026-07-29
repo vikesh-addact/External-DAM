@@ -551,7 +551,7 @@ export function createContentBridgeService(): ContentBridgeService {
             try {
                 const gql = await sdkClient.mutate('xmc.preview.graphql', {
                     params: {
-                        body: { query: GQL_CHILDREN_QUERY, variables: { path: '/sitecore/content/Media', language: 'en' } },
+                        body: { query: GQL_CHILDREN_QUERY, variables: { path: '/sitecore/media library', language: 'en' } },
                         query: { sitecoreContextId: environmentId },
                     },
                 });
@@ -578,7 +578,7 @@ export function createContentBridgeService(): ContentBridgeService {
                         tree.push({
                             id: (mediaNode.id ?? 'media') as string,
                             name: (mediaNode.name ?? 'Media Library') as string,
-                            path: (mediaNode.path ?? '/sitecore/content/Media') as string,
+                            path: (mediaNode.path ?? '/sitecore/media library') as string,
                             template: '',
                             updatedAt: '',
                             dependencies: [],
