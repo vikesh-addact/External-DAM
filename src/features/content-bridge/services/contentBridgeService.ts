@@ -200,6 +200,14 @@ const GQL_CHILDREN_QUERY = `query($path: String!, $language: String!) {
                 id name path
                 template { name }
                 hasChildren
+                children(first: 200) {
+                    total
+                    results {
+                        id name path
+                        template { name }
+                        hasChildren
+                    }
+                }
             }
         }
     }
