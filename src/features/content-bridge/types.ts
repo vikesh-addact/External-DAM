@@ -48,7 +48,7 @@ export interface TransferRecord {
   itemTransferJobId?: string;
   blobUrl?: string;
   failureReason?: string;
-  chunkSetsMetadata?: Array<{ ChunkSetId: string; ChunkCount: number; TotalItemCount: number }>;
+  chunkSetsMetadata?: Array<{ ChunkSetId: string; ChunkCount: number; TotalItemCount: number; IsMedia?: boolean }>;
   contentTransferFileName?: string;
   auditLog: AuditLogEntry[];
 }

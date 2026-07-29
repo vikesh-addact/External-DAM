@@ -283,7 +283,7 @@ async function applyTransfer(rec: TransferRecord) {
                         params: {
                             body: chunkData,
                             path: { transferId: rec.id, chunksetId: chunkSet.ChunkSetId, chunkId: chunkIdx },
-                            query: { sitecoreContextId: rec.destinationEnvironmentId },
+                            query: { sitecoreContextId: rec.destinationEnvironmentId, isMedia: chunkSet.IsMedia ?? false },
                         },
                     });
 
@@ -741,7 +741,7 @@ export function createContentBridgeService(): ContentBridgeService {
                             if (statusData?.State) {
                                 const state = (statusData.State as string).toLowerCase();
                                 const chunksMeta = statusData.ChunkSetsMetadata as
-                                    | Array<{ ChunkSetId: string; ChunkCount: number; TotalItemCount: number }>
+                                    | Array<{ ChunkSetId: string; ChunkCount: number; TotalItemCount: number; IsMedia?: boolean }>
                                     | undefined;
 
                                 if (state === 'completed' && chunksMeta?.length) {
