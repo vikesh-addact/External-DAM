@@ -234,14 +234,34 @@ export function ContentBridgeApp() {
     const activeTransfers = transfers.filter((transfer) => ['queued', 'transferring', 'creating'].includes(transfer.status));
     const failedTransfers = transfers.filter((transfer) => transfer.status === 'failed');
 
-    const toggleItem = (item: ContentTreeItem, includeSubtree = false) => {
-        const ids = includeSubtree ? collectItemIds(item) : [item.id];
+    const toggleItem = async (item: ContentTreeItem, includeSubtree = false) => {
+        if (!includeSubtree) {
+            setSelectedItemIds((current) => {
+                if (current.includes(item.id)) {
+                    return current.filter((id) => id !== item.id);
+                }
+                return [...current, item.id];
+            });
+            return;
+        }
+
+        let allDescendants: ContentTreeItem[] = item.children ?? [];
+
+        if (item.hasMoreChildren) {
+            const loadedDescendants = await service.getDescendants(item.path, sourceId);
+            const setTreeFn = findItem(tree, item.id) ? setTree : setMediaTree;
+            setTreeFn((current) => updateTreeNodeChildren(current, item.id, loadedDescendants));
+            allDescendants = loadedDescendants;
+        }
+
+        const virtualRoot: ContentTreeItem = { ...item, children: allDescendants };
+        const ids = collectItemIds(virtualRoot);
+
         setSelectedItemIds((current) => {
             const allSelected = ids.every((id) => current.includes(id));
             if (allSelected) {
                 return current.filter((id) => !ids.includes(id));
             }
-
             return Array.from(new Set([...current, ...ids]));
         });
     };

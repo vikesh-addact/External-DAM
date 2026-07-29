@@ -8,6 +8,7 @@ export interface ContentBridgeService {
     getMediaLibraryTree(environmentId: string): Promise<ContentTreeItem[]>;
     getPageChildren(siteId: string, pageId: string, environmentId: string): Promise<ContentTreeItem[]>;
     getGraphNodeChildren(itemPath: string, environmentId: string): Promise<ContentTreeItem[]>;
+    getDescendants(itemPath: string, environmentId: string): Promise<ContentTreeItem[]>;
     getLanguages(environmentId: string): Promise<string[]>;
     createContentTransfer(draft: TransferDraft): Promise<TransferRecord>;
     getTransfers(): Promise<TransferRecord[]>;
@@ -674,6 +675,18 @@ export function createContentBridgeService(): ContentBridgeService {
                 console.warn(`[ContentBridge] getGraphNodeChildren failed for path ${itemPath}:`, err);
                 return [];
             }
+        },
+
+        async getDescendants(itemPath: string, environmentId: string): Promise<ContentTreeItem[]> {
+            const children = await this.getGraphNodeChildren(itemPath, environmentId);
+            for (const child of children) {
+                if (child.hasMoreChildren) {
+                    const grandChildren = await this.getDescendants(child.path, environmentId);
+                    child.children = grandChildren;
+                    child.hasMoreChildren = false;
+                }
+            }
+            return children;
         },
 
         async createContentTransfer(draft) {
