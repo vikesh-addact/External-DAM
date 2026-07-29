@@ -365,6 +365,29 @@
     background: #fcfcfc;
 }
 
+.treeList {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.treeSection {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.treeSectionHeader {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    color: var(--sitecore-slate);
+    font-size: var(--sc-text-sm);
+    border-bottom: 1px solid var(--sitecore-border);
+    padding-bottom: 6px;
+}
+
 .tree {
     display: grid;
     gap: 2px;

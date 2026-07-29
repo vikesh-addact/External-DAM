@@ -5,6 +5,7 @@ import type { ContentEnvironment, ContentTreeItem, MergeStrategy, TransferDraft,
 export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
     getContentTree(environmentId: string): Promise<ContentTreeItem[]>;
+    getMediaLibraryTree(environmentId: string): Promise<ContentTreeItem[]>;
     getPageChildren(siteId: string, pageId: string, environmentId: string): Promise<ContentTreeItem[]>;
     getGraphNodeChildren(itemPath: string, environmentId: string): Promise<ContentTreeItem[]>;
     getLanguages(environmentId: string): Promise<string[]>;
@@ -530,7 +531,7 @@ export function createContentBridgeService(): ContentBridgeService {
                             updatedAt: '',
                             dependencies: [],
                             hasMoreChildren: results.length < rootTotal,
-                            children: results.map((node) => gqlNodeToTreeItem(node)),
+                            children: results.filter((node) => (node.name as string) !== 'Media').map((node) => gqlNodeToTreeItem(node)),
                         });
                     }
                 }
@@ -539,6 +540,57 @@ export function createContentBridgeService(): ContentBridgeService {
             }
 
             console.log('[ContentBridge] Final content tree:', tree);
+            return tree;
+        },
+
+        async getMediaLibraryTree(environmentId) {
+            if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
+
+            const tree: ContentTreeItem[] = [];
+
+            try {
+                const gql = await sdkClient.mutate('xmc.preview.graphql', {
+                    params: {
+                        body: { query: GQL_CHILDREN_QUERY, variables: { path: '/sitecore/content/Media', language: 'en' } },
+                        query: { sitecoreContextId: environmentId },
+                    },
+                });
+                const gqlRaw = gql as unknown as Record<string, unknown>;
+                const gqlData = gqlRaw?.data as Record<string, unknown> | undefined;
+                let gqlPayload: Record<string, unknown> | undefined;
+
+                if (gqlData && 'item' in gqlData) {
+                    gqlPayload = gqlData;
+                } else if (gqlData && gqlData.data && typeof gqlData.data === 'object' && 'item' in (gqlData.data as Record<string, unknown>)) {
+                    gqlPayload = gqlData.data as Record<string, unknown>;
+                }
+
+                if (gqlData?.errors) {
+                    console.warn('[ContentBridge] Media Library GraphQL errors:', gqlData.errors);
+                }
+
+                const mediaNode = gqlPayload?.item as Record<string, unknown> | undefined;
+                if (mediaNode?.children) {
+                    const childContainer = mediaNode.children as Record<string, unknown>;
+                    const results = childContainer.results as Record<string, unknown>[];
+                    const total = (childContainer.total as number) ?? 0;
+                    if (Array.isArray(results)) {
+                        tree.push({
+                            id: (mediaNode.id ?? 'media') as string,
+                            name: (mediaNode.name ?? 'Media Library') as string,
+                            path: (mediaNode.path ?? '/sitecore/content/Media') as string,
+                            template: '',
+                            updatedAt: '',
+                            dependencies: [],
+                            hasMoreChildren: results.length < total,
+                            children: results.map((node) => gqlNodeToTreeItem(node)),
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('[ContentBridge] Media Library fetch failed:', err);
+            }
+
             return tree;
         },
 

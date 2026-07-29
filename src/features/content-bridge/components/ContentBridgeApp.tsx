@@ -14,6 +14,7 @@ import {
     FileClock,
     FolderTree,
     History,
+    Image,
     KeyRound,
     Layers3,
     ListChecks,
@@ -111,6 +112,8 @@ export function ContentBridgeApp() {
     const [isCreating, setIsCreating] = useState(false);
     const [isLoadingData, setIsLoadingData] = useState(true);
     const [treeLoading, setTreeLoading] = useState(false);
+    const [mediaTree, setMediaTree] = useState<ContentTreeItem[]>([]);
+    const [mediaTreeLoading, setMediaTreeLoading] = useState(false);
     const [loadingChildrenIds, setLoadingChildrenIds] = useState<Set<string>>(new Set());
     const [apiError, setApiError] = useState<string | null>(null);
     const [sdkConnected, setSdkConnected] = useState(false);
@@ -174,19 +177,27 @@ export function ContentBridgeApp() {
         const loadTree = async () => {
             try {
                 setTreeLoading(true);
-                const contentTreeResult = await service.getContentTree(sourceId);
+                setMediaTreeLoading(true);
+                const [contentTreeResult, mediaTreeResult] = await Promise.all([
+                    service.getContentTree(sourceId),
+                    service.getMediaLibraryTree(sourceId),
+                ]);
                 if (!cancelled) {
                     setTree(contentTreeResult);
-                    setExpandedIds(new Set(contentTreeResult.map((item) => item.id)));
+                    setMediaTree(mediaTreeResult);
+                    setExpandedIds(new Set([...contentTreeResult, ...mediaTreeResult].map((item) => item.id)));
                     setSelectedItemIds([]);
                 }
             } catch (err) {
                 if (!cancelled) {
-                    console.error('Error loading content tree:', err);
+                    console.error('Error loading trees:', err);
                     setApiError(err instanceof Error ? err.message : 'Failed to load content tree');
                 }
             } finally {
-                if (!cancelled) setTreeLoading(false);
+                if (!cancelled) {
+                    setTreeLoading(false);
+                    setMediaTreeLoading(false);
+                }
             }
         };
 
@@ -217,8 +228,9 @@ export function ContentBridgeApp() {
     }, [service, sdkConnected, isLoadingData]);
 
     const selectedTransfer = transfers.find((transfer) => transfer.id === selectedTransferId) ?? transfers[0];
-    const allItems = useMemo(() => flattenTree(tree), [tree]);
-    const selectedItems = selectedItemIds.map((id) => findItem(tree, id)).filter(Boolean) as ContentTreeItem[];
+    const allTrees = useMemo(() => [...tree, ...mediaTree], [tree, mediaTree]);
+    const allItems = useMemo(() => flattenTree(allTrees), [allTrees]);
+    const selectedItems = selectedItemIds.map((id) => findItem(allTrees, id)).filter(Boolean) as ContentTreeItem[];
     const activeTransfers = transfers.filter((transfer) => ['queued', 'transferring', 'creating'].includes(transfer.status));
     const failedTransfers = transfers.filter((transfer) => transfer.status === 'failed');
 
@@ -245,17 +257,17 @@ export function ContentBridgeApp() {
             return next;
         });
 
-        const node = findItem(tree, id);
+        const node = findItem(tree, id) ?? findItem(mediaTree, id);
         if (node?.hasMoreChildren && (!node.children || node.children.length === 0)) {
-            loadChildren(id, node.path);
+            loadChildren(id, node.path, findItem(tree, id) ? setTree : setMediaTree);
         }
     };
 
-    const loadChildren = async (nodeId: string, itemPath: string) => {
+    const loadChildren = async (nodeId: string, itemPath: string, setTreeFn: typeof setTree) => {
         setLoadingChildrenIds((current) => new Set(current).add(nodeId));
         try {
             const children = await service.getGraphNodeChildren(itemPath, sourceId);
-            setTree((current) => updateTreeNodeChildren(current, nodeId, children));
+            setTreeFn((current) => updateTreeNodeChildren(current, nodeId, children));
         } catch (err) {
             console.error('Error loading children:', err);
         } finally {
@@ -408,6 +420,8 @@ export function ContentBridgeApp() {
                         transferName={transferName}
                         tree={tree}
                         treeLoading={treeLoading}
+                        mediaTree={mediaTree}
+                        mediaTreeLoading={mediaTreeLoading}
                         toggleItem={toggleItem}
                         createTransfer={createTransfer}
                     />
@@ -523,6 +537,8 @@ function WizardPage({
     transferName,
     tree,
     treeLoading,
+    mediaTree,
+    mediaTreeLoading,
     toggleItem,
     createTransfer,
 }: {
@@ -544,6 +560,8 @@ function WizardPage({
     transferName: string;
     tree: ContentTreeItem[];
     treeLoading: boolean;
+    mediaTree: ContentTreeItem[];
+    mediaTreeLoading: boolean;
     toggleItem: (item: ContentTreeItem, includeSubtree?: boolean) => void;
     createTransfer: () => void;
 }) {
@@ -586,14 +604,14 @@ function WizardPage({
                         <p>
                             {!sourceId
                                 ? 'Select a source environment to load content.'
-                                : treeLoading
-                                    ? 'Loading content tree...'
+                                : treeLoading || mediaTreeLoading
+                                    ? 'Loading trees...'
                                     : `${selectedItemIds.length} of ${allItems.length} available items selected.`}
                         </p>
                     </div>
                     <FolderTree size={22} aria-hidden />
                 </div>
-                {treeLoading ? (
+                {treeLoading || mediaTreeLoading ? (
                     <div className={styles.emptyState}>
                         <Loader2 className={styles.spin} size={18} aria-hidden />
                         Loading content tree...
@@ -601,18 +619,45 @@ function WizardPage({
                 ) : !sourceId ? (
                     <div className={styles.emptyState}>Select a source environment above to browse content.</div>
                 ) : (
-                    <div className={styles.tree}>
-                        {tree.map((item) => (
-                            <TreeNode
-                                item={item}
-                                key={item.id}
-                                selectedItemIds={selectedItemIds}
-                                toggleItem={toggleItem}
-                                expandedIds={expandedIds}
-                                toggleExpand={toggleExpand}
-                                loadingChildrenIds={loadingChildrenIds}
-                            />
-                        ))}
+                    <div className={styles.treeList}>
+                        <div className={styles.treeSection}>
+                            <div className={styles.treeSectionHeader}>
+                                <FolderTree size={16} aria-hidden />
+                                <strong>Content</strong>
+                            </div>
+                            <div className={styles.tree}>
+                                {tree.map((item) => (
+                                    <TreeNode
+                                        item={item}
+                                        key={item.id}
+                                        selectedItemIds={selectedItemIds}
+                                        toggleItem={toggleItem}
+                                        expandedIds={expandedIds}
+                                        toggleExpand={toggleExpand}
+                                        loadingChildrenIds={loadingChildrenIds}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                        <div className={styles.treeSection}>
+                            <div className={styles.treeSectionHeader}>
+                                <Image size={16} aria-hidden />
+                                <strong>Media Library</strong>
+                            </div>
+                            <div className={styles.tree}>
+                                {mediaTree.map((item) => (
+                                    <TreeNode
+                                        item={item}
+                                        key={item.id}
+                                        selectedItemIds={selectedItemIds}
+                                        toggleItem={toggleItem}
+                                        expandedIds={expandedIds}
+                                        toggleExpand={toggleExpand}
+                                        loadingChildrenIds={loadingChildrenIds}
+                                    />
+                                ))}
+                            </div>
+                        </div>
                     </div>
                 )}
             </section>
