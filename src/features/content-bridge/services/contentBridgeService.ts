@@ -280,25 +280,28 @@ async function applyTransfer(rec: TransferRecord) {
                     audit('Chunk extracted', `Set ${chunkSet.ChunkSetId} chunk ${chunkIdx}: ${chunkData.size} bytes, type=${chunkData.type}`);
 
                     let isMedia = false;
+                    let chunkSaved = false;
                     for (let attempt = 0; attempt < 2; attempt++) {
-                        try {
-                            await sdkClient.mutate('xmc.contentTransfer.saveChunk', {
-                                params: {
-                                    body: chunkData,
-                                    path: { transferId: rec.id, chunksetId: chunkSet.ChunkSetId, chunkId: chunkIdx },
-                                    query: { sitecoreContextId: rec.destinationEnvironmentId, isMedia },
-                                },
-                            });
-                            break;
-                        } catch (saveErr) {
-                            const msg = saveErr instanceof Error ? saveErr.message : String(saveErr);
-                            if (attempt === 0 && msg.includes('isMedia')) {
+                        const saveRes = await sdkClient.mutate('xmc.contentTransfer.saveChunk', {
+                            params: {
+                                body: chunkData,
+                                path: { transferId: rec.id, chunksetId: chunkSet.ChunkSetId, chunkId: chunkIdx },
+                                query: { sitecoreContextId: rec.destinationEnvironmentId, isMedia },
+                            },
+                        });
+                        if (saveRes && typeof saveRes === 'object' && 'error' in saveRes && saveRes.error) {
+                            const errBody = saveRes.error as Record<string, unknown>;
+                            const errMsg = errBody?.Error ?? errBody?.message ?? String(errBody);
+                            if (attempt === 0 && errMsg.includes('isMedia')) {
                                 isMedia = true;
                                 continue;
                             }
-                            throw saveErr;
+                            throw new Error(`saveChunk failed: ${errMsg}`);
                         }
+                        chunkSaved = true;
+                        break;
                     }
+                    if (!chunkSaved) throw new Error('saveChunk failed after all attempts');
 
                     audit('Chunk saved', `Set ${chunkSet.ChunkSetId} chunk ${chunkIdx}: ${chunkData.size} bytes pushed to destination, isMedia=${isMedia}`);
 
