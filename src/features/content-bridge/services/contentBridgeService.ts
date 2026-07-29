@@ -279,15 +279,28 @@ async function applyTransfer(rec: TransferRecord) {
 
                     audit('Chunk extracted', `Set ${chunkSet.ChunkSetId} chunk ${chunkIdx}: ${chunkData.size} bytes, type=${chunkData.type}`);
 
-                    await sdkClient.mutate('xmc.contentTransfer.saveChunk', {
-                        params: {
-                            body: chunkData,
-                            path: { transferId: rec.id, chunksetId: chunkSet.ChunkSetId, chunkId: chunkIdx },
-                            query: { sitecoreContextId: rec.destinationEnvironmentId, isMedia: chunkSet.IsMedia ?? false },
-                        },
-                    });
+                    let isMedia = false;
+                    for (let attempt = 0; attempt < 2; attempt++) {
+                        try {
+                            await sdkClient.mutate('xmc.contentTransfer.saveChunk', {
+                                params: {
+                                    body: chunkData,
+                                    path: { transferId: rec.id, chunksetId: chunkSet.ChunkSetId, chunkId: chunkIdx },
+                                    query: { sitecoreContextId: rec.destinationEnvironmentId, isMedia },
+                                },
+                            });
+                            break;
+                        } catch (saveErr) {
+                            const msg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+                            if (attempt === 0 && msg.includes('isMedia')) {
+                                isMedia = true;
+                                continue;
+                            }
+                            throw saveErr;
+                        }
+                    }
 
-                    audit('Chunk saved', `Set ${chunkSet.ChunkSetId} chunk ${chunkIdx}: ${chunkData.size} bytes pushed to destination`);
+                    audit('Chunk saved', `Set ${chunkSet.ChunkSetId} chunk ${chunkIdx}: ${chunkData.size} bytes pushed to destination, isMedia=${isMedia}`);
 
                     completedChunks++;
                     rec.progress = 20 + Math.round((completedChunks / totalChunks) * 50);
