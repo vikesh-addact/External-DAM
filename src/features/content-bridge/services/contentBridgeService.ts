@@ -146,11 +146,9 @@ function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
     if (id && path) itemIdToPath.set(id, path);
 
     const childContainer = node.children as Record<string, unknown> | undefined;
-    const rawNodes = childContainer?.nodes;
+    const rawNodes = childContainer?.nodes as unknown[] | undefined;
     const children = Array.isArray(rawNodes) ? (rawNodes as Record<string, unknown>[]).map(gqlNodeToTreeItem) : [];
-    const hasMoreChildren = Array.isArray(rawNodes)
-        ? rawNodes.length > 0
-        : (node.hasChildren as boolean) === true;
+    const hasMoreChildren = (node.hasChildren as boolean) === true && (!rawNodes || rawNodes.length === 0);
 
     return { id, name, path, template: '', updatedAt: '', dependencies: [], children, hasMoreChildren };
 }
@@ -174,13 +172,13 @@ function progressFor(status: TransferStatus): number {
 
 const CONTENT_TREE_GQL = `query {
     item(where: { database: "master", path: "/sitecore/content" }) {
-        itemId name path
+        itemId name path hasChildren
         children {
             nodes {
-                itemId name path
+                itemId name path hasChildren
                 children {
                     nodes {
-                        itemId name path
+                        itemId name path hasChildren
                     }
                 }
             }
@@ -190,13 +188,13 @@ const CONTENT_TREE_GQL = `query {
 
 const GQL_CHILDREN_QUERY = `query($path: String!) {
     item(where: { database: "master", path: $path }) {
-        itemId name path
+        itemId name path hasChildren
         children {
             nodes {
-                itemId name path
+                itemId name path hasChildren
                 children {
                     nodes {
-                        itemId name path
+                        itemId name path hasChildren
                     }
                 }
             }
