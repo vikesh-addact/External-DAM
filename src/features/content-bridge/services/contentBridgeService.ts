@@ -148,7 +148,9 @@ function gqlNodeToTreeItem(node: Record<string, unknown>): ContentTreeItem {
     const rawResults = childContainer?.results;
     const children = Array.isArray(rawResults) ? (rawResults as Record<string, unknown>[]).map(gqlNodeToTreeItem) : [];
     const total = (childContainer?.total as number) ?? 0;
-    const hasMoreChildren = total > 0 && children.length < total;
+    const hasMoreChildren = total > 0
+        ? children.length < total
+        : (node.hasChildren as boolean) === true;
 
     return { id, name, path, template: '', updatedAt: '', dependencies: [], children, hasMoreChildren };
 }
@@ -175,28 +177,12 @@ const CONTENT_TREE_GQL = `query($language: String!) {
         id name path
         template { name }
         hasChildren
-        children(first: 1000) {
+        children(first: 200) {
             total
             results {
                 id name path
                 template { name }
                 hasChildren
-                children(first: 1000) {
-                    total
-                    results {
-                        id name path
-                        template { name }
-                        hasChildren
-                        children(first: 1000) {
-                            total
-                            results {
-                                id name path
-                                template { name }
-                                hasChildren
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -207,7 +193,7 @@ const GQL_CHILDREN_QUERY = `query($path: String!, $language: String!) {
         id name path
         template { name }
         hasChildren
-        children(first: 1000) {
+        children(first: 200) {
             total
             results {
                 id name path
