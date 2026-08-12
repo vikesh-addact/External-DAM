@@ -8,6 +8,7 @@ import {
     AlertTriangle,
     ArrowRight,
     CheckCircle2,
+    ChevronLeft,
     ChevronRight,
     Clock3,
     Component,
@@ -25,6 +26,7 @@ import {
     Settings,
     ShieldCheck,
     Split,
+    X,
 } from 'lucide-react';
 import { createContentBridgeService } from '../services/contentBridgeService';
 import type { ContentEnvironment, ContentTreeItem, MergeStrategy, TransferRecord, TransferStatus } from '../types';
@@ -57,6 +59,8 @@ const statusLabels: Record<TransferStatus, string> = {
     completed: 'Completed',
     failed: 'Failed',
 };
+
+const PREVIEW_PAGE_SIZE = 10;
 
 function collectItemIds(item: ContentTreeItem): string[] {
     return [item.id, ...(item.children ?? []).flatMap(collectItemIds)];
@@ -649,6 +653,10 @@ function WizardPage({
         sourceId !== destinationId &&
         selectedItemIds.length > 0;
 
+    const [previewPage, setPreviewPage] = useState(0);
+    const totalPreviewPages = Math.max(1, Math.ceil(selectedItems.length / PREVIEW_PAGE_SIZE));
+    const currentPreviewPage = Math.min(previewPage, totalPreviewPages - 1);
+
     return (
         <div className={styles.wizardGrid}>
             <section className={styles.panel}>
@@ -795,7 +803,60 @@ function WizardPage({
                 </div>
                 <div className={styles.summaryBox}>
                     <strong>Request preview</strong>
-                    <span>{selectedItems.map((item) => item.name).join(', ') || 'No items selected'}</span>
+                    {selectedItems.length === 0 ? (
+                        <span>No items selected</span>
+                    ) : (
+                        <>
+                            <ol className={styles.previewList}>
+                                {selectedItems
+                                    .slice(
+                                        currentPreviewPage * PREVIEW_PAGE_SIZE,
+                                        currentPreviewPage * PREVIEW_PAGE_SIZE + PREVIEW_PAGE_SIZE,
+                                    )
+                                    .map((item, index) => (
+                                        <li className={styles.previewRow} key={item.id}>
+                                            <span className={styles.previewIndex}>{currentPreviewPage * PREVIEW_PAGE_SIZE + index + 1}</span>
+                                            <span className={styles.previewName} title={item.path}>
+                                                {item.name}
+                                            </span>
+                                            <button
+                                                className={styles.previewDelete}
+                                                onClick={() => toggleItem(item)}
+                                                title="Remove from selection"
+                                                type="button"
+                                            >
+                                                <X size={14} aria-hidden />
+                                            </button>
+                                        </li>
+                                    ))}
+                            </ol>
+                            {selectedItems.length > PREVIEW_PAGE_SIZE && (
+                                <div className={styles.previewPagination}>
+                                    <button
+                                        className={styles.previewPageButton}
+                                        disabled={currentPreviewPage === 0}
+                                        onClick={() => setPreviewPage((page) => page - 1)}
+                                        type="button"
+                                    >
+                                        <ChevronLeft size={14} aria-hidden />
+                                        Prev
+                                    </button>
+                                    <span>
+                                        Page {currentPreviewPage + 1} of {totalPreviewPages}
+                                    </span>
+                                    <button
+                                        className={styles.previewPageButton}
+                                        disabled={currentPreviewPage >= totalPreviewPages - 1}
+                                        onClick={() => setPreviewPage((page) => page + 1)}
+                                        type="button"
+                                    >
+                                        Next
+                                        <ChevronRight size={14} aria-hidden />
+                                    </button>
+                                </div>
+                            )}
+                        </>
+                    )}
                     <span>
                         Source {formatEnvironmentName(environments, sourceId)} to destination {formatEnvironmentName(environments, destinationId)}
                     </span>

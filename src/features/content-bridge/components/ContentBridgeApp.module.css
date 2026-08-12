@@ -551,6 +551,94 @@
     color: var(--sitecore-slate);
 }
 
+.previewList {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 4px;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.previewRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    background: #fff;
+    border: 1px solid var(--sitecore-border);
+    font-size: var(--sc-text-sm);
+}
+
+.previewIndex {
+    min-width: 20px;
+    text-align: center;
+    color: var(--sitecore-muted);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--sc-font-semibold);
+    flex-shrink: 0;
+}
+
+.previewName {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.previewDelete {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--sitecore-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.previewDelete:hover {
+    background: #fee2e2;
+    color: var(--sitecore-red-dark);
+}
+
+.previewPagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #fde1e8;
+    font-size: var(--sc-text-sm);
+    color: var(--sitecore-slate);
+}
+
+.previewPageButton {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid var(--sitecore-border);
+    border-radius: 8px;
+    padding: 4px 8px;
+    background: white;
+    color: var(--sitecore-charcoal);
+    font-size: var(--sc-text-sm);
+    font-family: var(--sc-font-body);
+    cursor: pointer;
+}
+
+.previewPageButton:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
 .transferCard {
     display: grid;
     gap: 12px;
