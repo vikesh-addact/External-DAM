@@ -273,6 +273,8 @@ export function ContentBridgeApp() {
     const activeTransfers = transfers.filter((transfer) => ['queued', 'transferring', 'creating'].includes(transfer.status));
     const failedTransfers = transfers.filter((transfer) => transfer.status === 'failed');
 
+    const clearSelection = () => setSelectedItemIds([]);
+
     const toggleItem = async (item: ContentTreeItem, includeSubtree = false) => {
         if (!includeSubtree) {
             setSelectedItemIds((current) => {
@@ -494,6 +496,7 @@ export function ContentBridgeApp() {
                         renderingsTree={renderingsTree}
                         renderingsTreeLoading={renderingsTreeLoading}
                         toggleItem={toggleItem}
+                        clearSelection={clearSelection}
                         createTransfer={createTransfer}
                     />
                 )}
@@ -616,6 +619,7 @@ function WizardPage({
     renderingsTree,
     renderingsTreeLoading,
     toggleItem,
+    clearSelection,
     createTransfer,
 }: {
     allItems: ContentTreeItem[];
@@ -644,6 +648,7 @@ function WizardPage({
     renderingsTree: ContentTreeItem[];
     renderingsTreeLoading: boolean;
     toggleItem: (item: ContentTreeItem, includeSubtree?: boolean) => void;
+    clearSelection: () => void;
     createTransfer: () => void;
 }) {
     const canCreate =
@@ -802,7 +807,15 @@ function WizardPage({
                     ))}
                 </div>
                 <div className={styles.summaryBox}>
-                    <strong>Request preview</strong>
+                    <div className={styles.previewHeader}>
+                        <strong>Request preview</strong>
+                        {selectedItems.length > 0 && (
+                            <button className={styles.previewClearAll} onClick={clearSelection} type="button">
+                                <X size={13} aria-hidden />
+                                Clear all
+                            </button>
+                        )}
+                    </div>
                     {selectedItems.length === 0 ? (
                         <span>No items selected</span>
                     ) : (
@@ -817,7 +830,8 @@ function WizardPage({
                                         <li className={styles.previewRow} key={item.id}>
                                             <span className={styles.previewIndex}>{currentPreviewPage * PREVIEW_PAGE_SIZE + index + 1}</span>
                                             <span className={styles.previewName} title={item.path}>
-                                                {item.name}
+                                                <strong>{item.name}</strong>
+                                                <span className={styles.previewPath}>: {item.path}</span>
                                             </span>
                                             <button
                                                 className={styles.previewDelete}

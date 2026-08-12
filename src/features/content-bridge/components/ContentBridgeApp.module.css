@@ -561,6 +561,33 @@
     overflow-y: auto;
 }
 
+.previewHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.previewClearAll {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 0;
+    border-radius: 999px;
+    padding: 3px 8px;
+    background: transparent;
+    color: var(--sitecore-muted);
+    font-size: var(--sc-text-xs);
+    font-weight: var(--sc-font-semibold);
+    font-family: var(--sc-font-body);
+    cursor: pointer;
+}
+
+.previewClearAll:hover {
+    background: #fee2e2;
+    color: var(--sitecore-red-dark);
+}
+
 .previewRow {
     display: flex;
     align-items: center;
@@ -583,9 +610,25 @@
 
 .previewName {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    overflow: hidden;
+}
+
+.previewName strong {
+    flex-shrink: 0;
+    font-weight: var(--sc-font-semibold);
+    color: var(--sitecore-charcoal);
+}
+
+.previewPath {
+    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--sitecore-muted);
 }
 
 .previewDelete {
