@@ -615,13 +615,13 @@ export function createContentBridgeService(): ContentBridgeService {
         },
 
         async getTemplatesTree(environmentId) {
-            const tree = await fetchTreeAtPath(environmentId, '/sitecore/templates/Project');
+            const tree = await fetchTreeAtPath(environmentId, '/sitecore/templates');
             console.log('[ContentBridge] Final templates tree:', tree);
             return tree;
         },
 
         async getRenderingsTree(environmentId) {
-            const tree = await fetchTreeAtPath(environmentId, '/sitecore/layout/Renderings/Project');
+            const tree = await fetchTreeAtPath(environmentId, '/sitecore/layout/Renderings');
             console.log('[ContentBridge] Final renderings tree:', tree);
             return tree;
         },

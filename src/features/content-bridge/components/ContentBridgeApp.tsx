@@ -717,6 +717,26 @@ function WizardPage({
                         </div>
                         <div className={styles.treeSection}>
                             <div className={styles.treeSectionHeader}>
+                                <Component size={16} aria-hidden />
+                                <strong>Renderings</strong>
+                            </div>
+                            <div className={styles.tree}>
+                                {renderingsTree.map((item) => (
+                                    <TreeNode
+                                        item={item}
+                                        key={item.id}
+                                        selectedItemIds={selectedItemIds}
+                                        toggleItem={toggleItem}
+                                        expandedIds={expandedIds}
+                                        toggleExpand={toggleExpand}
+                                        loadingChildrenIds={loadingChildrenIds}
+                                        loadingSubtreeIds={loadingSubtreeIds}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                        <div className={styles.treeSection}>
+                            <div className={styles.treeSectionHeader}>
                                 <Image size={16} aria-hidden />
                                 <strong>Media Library</strong>
                             </div>
@@ -742,26 +762,6 @@ function WizardPage({
                             </div>
                             <div className={styles.tree}>
                                 {templatesTree.map((item) => (
-                                    <TreeNode
-                                        item={item}
-                                        key={item.id}
-                                        selectedItemIds={selectedItemIds}
-                                        toggleItem={toggleItem}
-                                        expandedIds={expandedIds}
-                                        toggleExpand={toggleExpand}
-                                        loadingChildrenIds={loadingChildrenIds}
-                                        loadingSubtreeIds={loadingSubtreeIds}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                        <div className={styles.treeSection}>
-                            <div className={styles.treeSectionHeader}>
-                                <Component size={16} aria-hidden />
-                                <strong>Renderings</strong>
-                            </div>
-                            <div className={styles.tree}>
-                                {renderingsTree.map((item) => (
                                     <TreeNode
                                         item={item}
                                         key={item.id}
