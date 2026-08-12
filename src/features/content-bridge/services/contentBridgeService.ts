@@ -6,6 +6,8 @@ export interface ContentBridgeService {
     getEnvironments(): Promise<ContentEnvironment[]>;
     getContentTree(environmentId: string): Promise<ContentTreeItem[]>;
     getMediaLibraryTree(environmentId: string): Promise<ContentTreeItem[]>;
+    getTemplatesTree(environmentId: string): Promise<ContentTreeItem[]>;
+    getRenderingsTree(environmentId: string): Promise<ContentTreeItem[]>;
     getPageChildren(siteId: string, pageId: string, environmentId: string): Promise<ContentTreeItem[]>;
     getGraphNodeChildren(itemPath: string, environmentId: string): Promise<ContentTreeItem[]>;
     getDescendants(itemPath: string, environmentId: string): Promise<ContentTreeItem[]>;
@@ -458,6 +460,56 @@ async function applyTransfer(rec: TransferRecord) {
     }
 }
 
+async function fetchTreeAtPath(environmentId: string, path: string): Promise<ContentTreeItem[]> {
+    if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
+
+    const tree: ContentTreeItem[] = [];
+
+    try {
+        const gql = await sdkClient.mutate('xmc.authoring.graphql', {
+            params: {
+                body: { query: GQL_CHILDREN_QUERY, variables: { path } },
+                query: { sitecoreContextId: environmentId },
+            },
+        });
+        const gqlRaw = gql as unknown as Record<string, unknown>;
+        const gqlData = gqlRaw?.data as Record<string, unknown> | undefined;
+        let gqlPayload: Record<string, unknown> | undefined;
+
+        if (gqlData && 'item' in gqlData) {
+            gqlPayload = gqlData;
+        } else if (gqlData && gqlData.data && typeof gqlData.data === 'object' && 'item' in (gqlData.data as Record<string, unknown>)) {
+            gqlPayload = gqlData.data as Record<string, unknown>;
+        }
+
+        if (gqlData?.errors) {
+            console.warn('[ContentBridge] GraphQL tree errors:', gqlData.errors);
+        }
+
+        const node = gqlPayload?.item as Record<string, unknown> | undefined;
+        if (node?.children) {
+            const childContainer = node.children as Record<string, unknown>;
+            const nodes = childContainer.nodes as Record<string, unknown>[];
+            if (Array.isArray(nodes)) {
+                tree.push({
+                    id: (node.itemId ?? path) as string,
+                    name: (node.name ?? '') as string,
+                    path: (node.path ?? path) as string,
+                    template: '',
+                    updatedAt: '',
+                    dependencies: [],
+                    hasMoreChildren: nodes.length > 0,
+                    children: nodes.map((node) => gqlNodeToTreeItem(node)),
+                });
+            }
+        }
+    } catch (err) {
+        console.error(`[ContentBridge] GraphQL tree fetch failed for ${path}:`, err);
+    }
+
+    return tree;
+}
+
 export function createContentBridgeService(): ContentBridgeService {
     return {
         setClient(client) {
@@ -557,52 +609,20 @@ export function createContentBridgeService(): ContentBridgeService {
         },
 
         async getMediaLibraryTree(environmentId) {
-            if (!sdkClient) throw new Error('Marketplace SDK not initialized.');
+            const tree = await fetchTreeAtPath(environmentId, '/sitecore/media library');
+            console.log('[ContentBridge] Final media library tree:', tree);
+            return tree;
+        },
 
-            const tree: ContentTreeItem[] = [];
+        async getTemplatesTree(environmentId) {
+            const tree = await fetchTreeAtPath(environmentId, '/sitecore/templates/Project');
+            console.log('[ContentBridge] Final templates tree:', tree);
+            return tree;
+        },
 
-            try {
-                const gql = await sdkClient.mutate('xmc.authoring.graphql', {
-                    params: {
-                        body: { query: GQL_CHILDREN_QUERY, variables: { path: '/sitecore/media library' } },
-                        query: { sitecoreContextId: environmentId },
-                    },
-                });
-                const gqlRaw = gql as unknown as Record<string, unknown>;
-                const gqlData = gqlRaw?.data as Record<string, unknown> | undefined;
-                let gqlPayload: Record<string, unknown> | undefined;
-
-                if (gqlData && 'item' in gqlData) {
-                    gqlPayload = gqlData;
-                } else if (gqlData && gqlData.data && typeof gqlData.data === 'object' && 'item' in (gqlData.data as Record<string, unknown>)) {
-                    gqlPayload = gqlData.data as Record<string, unknown>;
-                }
-
-                if (gqlData?.errors) {
-                    console.warn('[ContentBridge] Media Library GraphQL errors:', gqlData.errors);
-                }
-
-                const mediaNode = gqlPayload?.item as Record<string, unknown> | undefined;
-                if (mediaNode?.children) {
-                    const childContainer = mediaNode.children as Record<string, unknown>;
-                    const nodes = childContainer.nodes as Record<string, unknown>[];
-                    if (Array.isArray(nodes)) {
-                        tree.push({
-                            id: (mediaNode.itemId ?? 'media') as string,
-                            name: (mediaNode.name ?? 'Media Library') as string,
-                            path: (mediaNode.path ?? '/sitecore/media library') as string,
-                            template: '',
-                            updatedAt: '',
-                            dependencies: [],
-                            hasMoreChildren: nodes.length > 0,
-                            children: nodes.map((node) => gqlNodeToTreeItem(node)),
-                        });
-                    }
-                }
-            } catch (err) {
-                console.error('[ContentBridge] Media Library fetch failed:', err);
-            }
-
+        async getRenderingsTree(environmentId) {
+            const tree = await fetchTreeAtPath(environmentId, '/sitecore/layout/Renderings/Project');
+            console.log('[ContentBridge] Final renderings tree:', tree);
             return tree;
         },
 

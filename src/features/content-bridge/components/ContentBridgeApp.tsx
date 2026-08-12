@@ -10,6 +10,7 @@ import {
     CheckCircle2,
     ChevronRight,
     Clock3,
+    Component,
     Database,
     FileClock,
     FolderTree,
@@ -17,6 +18,7 @@ import {
     Image,
     KeyRound,
     Layers3,
+    LayoutTemplate,
     ListChecks,
     Loader2,
     RefreshCw,
@@ -29,6 +31,7 @@ import type { ContentEnvironment, ContentTreeItem, MergeStrategy, TransferRecord
 import styles from './ContentBridgeApp.module.css';
 
 type PageKey = 'dashboard' | 'wizard' | 'monitor' | 'history' | 'details' | 'settings';
+type TreeKey = 'content' | 'media' | 'templates' | 'renderings';
 
 const navigation = [
     { id: 'dashboard', label: 'Dashboard', icon: Activity },
@@ -114,6 +117,10 @@ export function ContentBridgeApp() {
     const [treeLoading, setTreeLoading] = useState(false);
     const [mediaTree, setMediaTree] = useState<ContentTreeItem[]>([]);
     const [mediaTreeLoading, setMediaTreeLoading] = useState(false);
+    const [templatesTree, setTemplatesTree] = useState<ContentTreeItem[]>([]);
+    const [templatesTreeLoading, setTemplatesTreeLoading] = useState(false);
+    const [renderingsTree, setRenderingsTree] = useState<ContentTreeItem[]>([]);
+    const [renderingsTreeLoading, setRenderingsTreeLoading] = useState(false);
     const [loadingChildrenIds, setLoadingChildrenIds] = useState<Set<string>>(new Set());
     const [loadingSubtreeIds, setLoadingSubtreeIds] = useState<Set<string>>(new Set());
     const [apiError, setApiError] = useState<string | null>(null);
@@ -179,14 +186,20 @@ export function ContentBridgeApp() {
             try {
                 setTreeLoading(true);
                 setMediaTreeLoading(true);
-                const [contentTreeResult, mediaTreeResult] = await Promise.all([
+                setTemplatesTreeLoading(true);
+                setRenderingsTreeLoading(true);
+                const [contentTreeResult, mediaTreeResult, templatesTreeResult, renderingsTreeResult] = await Promise.all([
                     service.getContentTree(sourceId),
                     service.getMediaLibraryTree(sourceId),
+                    service.getTemplatesTree(sourceId),
+                    service.getRenderingsTree(sourceId),
                 ]);
                 if (!cancelled) {
                     setTree(contentTreeResult);
                     setMediaTree(mediaTreeResult);
-                    setExpandedIds(new Set([...contentTreeResult, ...mediaTreeResult].map((item) => item.id)));
+                    setTemplatesTree(templatesTreeResult);
+                    setRenderingsTree(renderingsTreeResult);
+                    setExpandedIds(new Set());
                     setSelectedItemIds([]);
                 }
             } catch (err) {
@@ -198,6 +211,8 @@ export function ContentBridgeApp() {
                 if (!cancelled) {
                     setTreeLoading(false);
                     setMediaTreeLoading(false);
+                    setTemplatesTreeLoading(false);
+                    setRenderingsTreeLoading(false);
                 }
             }
         };
@@ -229,8 +244,27 @@ export function ContentBridgeApp() {
     }, [service, sdkConnected, isLoadingData]);
 
     const selectedTransfer = transfers.find((transfer) => transfer.id === selectedTransferId) ?? transfers[0];
-    const allTrees = useMemo(() => [...tree, ...mediaTree], [tree, mediaTree]);
+    const allTrees = useMemo(
+        () => [...tree, ...mediaTree, ...templatesTree, ...renderingsTree],
+        [tree, mediaTree, templatesTree, renderingsTree],
+    );
     const allItems = useMemo(() => flattenTree(allTrees), [allTrees]);
+
+    const trees: Record<TreeKey, ContentTreeItem[]> = {
+        content: tree,
+        media: mediaTree,
+        templates: templatesTree,
+        renderings: renderingsTree,
+    };
+    const treeSetters: Record<TreeKey, typeof setTree> = {
+        content: setTree,
+        media: setMediaTree,
+        templates: setTemplatesTree,
+        renderings: setRenderingsTree,
+    };
+    const treeKeyOf = (id: string): TreeKey =>
+        (Object.keys(trees) as TreeKey[]).find((key) => findItem(trees[key], id)) ?? 'content';
+
     const selectedItems = selectedItemIds.map((id) => findItem(allTrees, id)).filter(Boolean) as ContentTreeItem[];
     const activeTransfers = transfers.filter((transfer) => ['queued', 'transferring', 'creating'].includes(transfer.status));
     const failedTransfers = transfers.filter((transfer) => transfer.status === 'failed');
@@ -249,7 +283,7 @@ export function ContentBridgeApp() {
         setLoadingSubtreeIds((current) => new Set(current).add(item.id));
         try {
             const loadedDescendants = await service.getDescendants(item.path, sourceId);
-            const setTreeFn = findItem(tree, item.id) ? setTree : setMediaTree;
+            const setTreeFn = treeSetters[treeKeyOf(item.id)];
             setTreeFn((current) => updateTreeNodeChildren(current, item.id, loadedDescendants));
 
             const virtualRoot: ContentTreeItem = { ...item, children: loadedDescendants };
@@ -282,9 +316,10 @@ export function ContentBridgeApp() {
             return next;
         });
 
-        const node = findItem(tree, id) ?? findItem(mediaTree, id);
+        const treeKey = treeKeyOf(id);
+        const node = findItem(trees[treeKey], id);
         if (node?.hasMoreChildren && (!node.children || node.children.length === 0)) {
-            loadChildren(id, node.path, findItem(tree, id) ? setTree : setMediaTree);
+            loadChildren(id, node.path, treeSetters[treeKey]);
         }
     };
 
@@ -450,6 +485,10 @@ export function ContentBridgeApp() {
                         treeLoading={treeLoading}
                         mediaTree={mediaTree}
                         mediaTreeLoading={mediaTreeLoading}
+                        templatesTree={templatesTree}
+                        templatesTreeLoading={templatesTreeLoading}
+                        renderingsTree={renderingsTree}
+                        renderingsTreeLoading={renderingsTreeLoading}
                         toggleItem={toggleItem}
                         createTransfer={createTransfer}
                     />
@@ -568,6 +607,10 @@ function WizardPage({
     treeLoading,
     mediaTree,
     mediaTreeLoading,
+    templatesTree,
+    templatesTreeLoading,
+    renderingsTree,
+    renderingsTreeLoading,
     toggleItem,
     createTransfer,
 }: {
@@ -592,6 +635,10 @@ function WizardPage({
     treeLoading: boolean;
     mediaTree: ContentTreeItem[];
     mediaTreeLoading: boolean;
+    templatesTree: ContentTreeItem[];
+    templatesTreeLoading: boolean;
+    renderingsTree: ContentTreeItem[];
+    renderingsTreeLoading: boolean;
     toggleItem: (item: ContentTreeItem, includeSubtree?: boolean) => void;
     createTransfer: () => void;
 }) {
@@ -634,14 +681,14 @@ function WizardPage({
                         <p>
                             {!sourceId
                                 ? 'Select a source environment to load content.'
-                                : treeLoading || mediaTreeLoading
+                                : treeLoading || mediaTreeLoading || templatesTreeLoading || renderingsTreeLoading
                                     ? 'Loading trees...'
                                     : `${selectedItemIds.length} of ${allItems.length} available items selected.`}
                         </p>
                     </div>
                     <FolderTree size={22} aria-hidden />
                 </div>
-                {treeLoading || mediaTreeLoading ? (
+                {treeLoading || mediaTreeLoading || templatesTreeLoading || renderingsTreeLoading ? (
                     <div className={styles.emptyState}>
                         <Loader2 className={styles.spin} size={18} aria-hidden />
                         Loading content tree...
@@ -675,6 +722,46 @@ function WizardPage({
                             </div>
                             <div className={styles.tree}>
                                 {mediaTree.map((item) => (
+                                    <TreeNode
+                                        item={item}
+                                        key={item.id}
+                                        selectedItemIds={selectedItemIds}
+                                        toggleItem={toggleItem}
+                                        expandedIds={expandedIds}
+                                        toggleExpand={toggleExpand}
+                                        loadingChildrenIds={loadingChildrenIds}
+                                        loadingSubtreeIds={loadingSubtreeIds}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                        <div className={styles.treeSection}>
+                            <div className={styles.treeSectionHeader}>
+                                <LayoutTemplate size={16} aria-hidden />
+                                <strong>Templates</strong>
+                            </div>
+                            <div className={styles.tree}>
+                                {templatesTree.map((item) => (
+                                    <TreeNode
+                                        item={item}
+                                        key={item.id}
+                                        selectedItemIds={selectedItemIds}
+                                        toggleItem={toggleItem}
+                                        expandedIds={expandedIds}
+                                        toggleExpand={toggleExpand}
+                                        loadingChildrenIds={loadingChildrenIds}
+                                        loadingSubtreeIds={loadingSubtreeIds}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                        <div className={styles.treeSection}>
+                            <div className={styles.treeSectionHeader}>
+                                <Component size={16} aria-hidden />
+                                <strong>Renderings</strong>
+                            </div>
+                            <div className={styles.tree}>
+                                {renderingsTree.map((item) => (
                                     <TreeNode
                                         item={item}
                                         key={item.id}
